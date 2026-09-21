@@ -3,17 +3,38 @@
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { inventory, parts } from "@/db/schema";
 import { stackServerApp } from "@/lib/stack";
 
 type PartType = "blade" | "ratchet" | "bit";
+type PartStats = Partial<{
+  attack: number;
+  defense: number;
+  stamina: number;
+  height: number;
+  dash: number;
+  burstResistance: number;
+}>;
+
+function readStats(formData: FormData, prefix: string): PartStats {
+  const stats: PartStats = {};
+  for (const key of ["attack", "defense", "stamina", "height", "dash", "burstResistance"] as const) {
+    const raw = formData.get(`${prefix}_${key}`);
+    if (raw && typeof raw === "string" && raw.trim() !== "") {
+      const n = Number(raw);
+      if (Number.isFinite(n)) stats[key] = n;
+    }
+  }
+  return stats;
+}
 
 async function findOrCreatePart(
   type: PartType,
   name: string,
   photoUrl: string | null,
+  stats: PartStats,
 ) {
   const trimmed = name.trim();
   const existing = await db
@@ -23,18 +44,17 @@ async function findOrCreatePart(
     .limit(1);
 
   if (existing[0]) {
-    if (photoUrl && !existing[0].imageUrl) {
-      await db
-        .update(parts)
-        .set({ imageUrl: photoUrl })
-        .where(and(eq(parts.id, existing[0].id), isNull(parts.imageUrl)));
+    const updates: Record<string, unknown> = { ...stats };
+    if (photoUrl && !existing[0].imageUrl) updates.imageUrl = photoUrl;
+    if (Object.keys(updates).length > 0) {
+      await db.update(parts).set(updates).where(eq(parts.id, existing[0].id));
     }
     return existing[0].id;
   }
 
   const inserted = await db
     .insert(parts)
-    .values({ type, name: trimmed, imageUrl: photoUrl })
+    .values({ type, name: trimmed, imageUrl: photoUrl, ...stats })
     .returning({ id: parts.id });
   return inserted[0].id;
 }
@@ -60,9 +80,9 @@ export async function addBoxToInventory(formData: FormData) {
   }
 
   const [bladeId, ratchetId, bitId] = await Promise.all([
-    findOrCreatePart("blade", bladeName, bladePhotoUrl),
-    findOrCreatePart("ratchet", ratchetName, ratchetPhotoUrl),
-    findOrCreatePart("bit", bitName, bitPhotoUrl),
+    findOrCreatePart("blade", bladeName, bladePhotoUrl, readStats(formData, "blade")),
+    findOrCreatePart("ratchet", ratchetName, ratchetPhotoUrl, readStats(formData, "ratchet")),
+    findOrCreatePart("bit", bitName, bitPhotoUrl, readStats(formData, "bit")),
   ]);
 
   const rows = [

@@ -5,6 +5,32 @@ import { PhotoCapture } from "@/components/photo-capture";
 import { addBoxToInventory } from "@/app/inventory/actions";
 
 type PartOption = { id: string; name: string };
+type StatField = { key: string; label: string };
+type Stats = Record<string, string>;
+
+const BLADE_STAT_FIELDS: StatField[] = [
+  { key: "attack", label: "ATK" },
+  { key: "defense", label: "DEF" },
+  { key: "stamina", label: "STA" },
+];
+const RATCHET_STAT_FIELDS: StatField[] = [
+  ...BLADE_STAT_FIELDS,
+  { key: "height", label: "Height" },
+];
+const BIT_STAT_FIELDS: StatField[] = [
+  ...BLADE_STAT_FIELDS,
+  { key: "dash", label: "Dash" },
+  { key: "burstResistance", label: "Burst" },
+];
+
+function statsFromAnalysis(data: Record<string, unknown>, prefix: string, fields: StatField[]): Stats {
+  const stats: Stats = {};
+  for (const f of fields) {
+    const raw = data[`${prefix}${f.key[0].toUpperCase()}${f.key.slice(1)}`];
+    stats[f.key] = typeof raw === "number" ? String(raw) : "";
+  }
+  return stats;
+}
 
 export function AddBoxForm({
   bladeOptions,
@@ -20,6 +46,10 @@ export function AddBoxForm({
   const [bladeName, setBladeName] = useState("");
   const [ratchetName, setRatchetName] = useState("");
   const [bitName, setBitName] = useState("");
+
+  const [bladeStats, setBladeStats] = useState<Stats>({});
+  const [ratchetStats, setRatchetStats] = useState<Stats>({});
+  const [bitStats, setBitStats] = useState<Stats>({});
 
   const [boxPhotoFrontUrl, setBoxPhotoFrontUrl] = useState<string | null>(null);
   const [boxPhotoBackUrl, setBoxPhotoBackUrl] = useState<string | null>(null);
@@ -56,6 +86,9 @@ export function AddBoxForm({
       if (data.bladeName) setBladeName(data.bladeName);
       if (data.ratchetName) setRatchetName(data.ratchetName);
       if (data.bitName) setBitName(data.bitName);
+      setBladeStats(statsFromAnalysis(data, "blade", BLADE_STAT_FIELDS));
+      setRatchetStats(statsFromAnalysis(data, "ratchet", RATCHET_STAT_FIELDS));
+      setBitStats(statsFromAnalysis(data, "bit", BIT_STAT_FIELDS));
       setAnalyzeStatus("done");
     } catch (err) {
       setAnalyzeStatus("error");
@@ -76,6 +109,16 @@ export function AddBoxForm({
     if (bladePhotoUrl) fd.set("bladePhotoUrl", bladePhotoUrl);
     if (ratchetPhotoUrl) fd.set("ratchetPhotoUrl", ratchetPhotoUrl);
     if (bitPhotoUrl) fd.set("bitPhotoUrl", bitPhotoUrl);
+
+    for (const [prefix, stats] of [
+      ["blade", bladeStats],
+      ["ratchet", ratchetStats],
+      ["bit", bitStats],
+    ] as const) {
+      for (const [key, value] of Object.entries(stats)) {
+        if (value !== "") fd.set(`${prefix}_${key}`, value);
+      }
+    }
 
     startTransition(() => {
       addBoxToInventory(fd);
@@ -146,6 +189,9 @@ export function AddBoxForm({
         onChange={setBladeName}
         options={bladeOptions}
         onPhotoUploaded={setBladePhotoUrl}
+        statFields={BLADE_STAT_FIELDS}
+        stats={bladeStats}
+        onStatChange={(key, value) => setBladeStats((s) => ({ ...s, [key]: value }))}
       />
       <PartField
         label="Ratchet"
@@ -153,6 +199,9 @@ export function AddBoxForm({
         onChange={setRatchetName}
         options={ratchetOptions}
         onPhotoUploaded={setRatchetPhotoUrl}
+        statFields={RATCHET_STAT_FIELDS}
+        stats={ratchetStats}
+        onStatChange={(key, value) => setRatchetStats((s) => ({ ...s, [key]: value }))}
       />
       <PartField
         label="Bit"
@@ -160,6 +209,9 @@ export function AddBoxForm({
         onChange={setBitName}
         options={bitOptions}
         onPhotoUploaded={setBitPhotoUrl}
+        statFields={BIT_STAT_FIELDS}
+        stats={bitStats}
+        onStatChange={(key, value) => setBitStats((s) => ({ ...s, [key]: value }))}
       />
 
       <button
@@ -179,12 +231,18 @@ function PartField({
   onChange,
   options,
   onPhotoUploaded,
+  statFields,
+  stats,
+  onStatChange,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: PartOption[];
   onPhotoUploaded: (url: string) => void;
+  statFields: StatField[];
+  stats: Stats;
+  onStatChange: (key: string, value: string) => void;
 }) {
   const listId = `${label.toLowerCase()}-options`;
   return (
@@ -207,6 +265,22 @@ function PartField({
           ))}
         </datalist>
       </label>
+
+      <div className="flex flex-wrap gap-2">
+        {statFields.map((f) => (
+          <label key={f.key} className="flex flex-col gap-0.5 text-xs">
+            <span className="text-zinc-500 dark:text-zinc-400">{f.label}</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={stats[f.key] ?? ""}
+              onChange={(e) => onStatChange(f.key, e.target.value)}
+              className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+            />
+          </label>
+        ))}
+      </div>
+
       <PhotoCapture label={`${label} photo`} onUploaded={onPhotoUploaded} />
     </div>
   );

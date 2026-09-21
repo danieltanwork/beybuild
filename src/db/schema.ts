@@ -24,6 +24,9 @@ export const parts = pgTable(
     attack: integer("attack"),
     defense: integer("defense"),
     stamina: integer("stamina"),
+    height: integer("height"), // ratchets: printed "height" stat
+    dash: integer("dash"), // bits: printed "dash" stat
+    burstResistance: integer("burst_resistance"), // bits: printed "burst resistance" stat
     weightG: numeric("weight_g", { precision: 5, scale: 2 }),
     imageUrl: text("image_url"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
