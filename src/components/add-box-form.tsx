@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { PhotoCapture } from "@/components/photo-capture";
-import { addBoxToInventory } from "@/app/inventory/actions";
+import { addBoxToInventory, deleteBox, updateBoxInventory } from "@/app/inventory/actions";
 
 type PartOption = { id: string; name: string };
 type StatField = { key: string; label: string };
@@ -32,30 +33,57 @@ function statsFromAnalysis(data: Record<string, unknown>, prefix: string, fields
   return stats;
 }
 
+type PartInitial = { name: string; photoUrl: string | null; stats: Stats };
+
 export function AddBoxForm({
   bladeOptions,
   ratchetOptions,
   bitOptions,
+  boxId,
+  initial,
 }: {
   bladeOptions: PartOption[];
   ratchetOptions: PartOption[];
   bitOptions: PartOption[];
+  boxId?: string;
+  initial?: {
+    boxCode: string;
+    boxName: string;
+    boxPhotoFrontUrl: string | null;
+    boxPhotoBackUrl: string | null;
+    blade: PartInitial;
+    ratchet: PartInitial;
+    bit: PartInitial;
+  };
 }) {
-  const [boxCode, setBoxCode] = useState("");
-  const [boxName, setBoxName] = useState("");
-  const [bladeName, setBladeName] = useState("");
-  const [ratchetName, setRatchetName] = useState("");
-  const [bitName, setBitName] = useState("");
+  const isEdit = !!boxId;
+  const router = useRouter();
 
-  const [bladeStats, setBladeStats] = useState<Stats>({});
-  const [ratchetStats, setRatchetStats] = useState<Stats>({});
-  const [bitStats, setBitStats] = useState<Stats>({});
+  const [boxCode, setBoxCode] = useState(initial?.boxCode ?? "");
+  const [boxName, setBoxName] = useState(initial?.boxName ?? "");
+  const [bladeName, setBladeName] = useState(initial?.blade.name ?? "");
+  const [ratchetName, setRatchetName] = useState(initial?.ratchet.name ?? "");
+  const [bitName, setBitName] = useState(initial?.bit.name ?? "");
 
-  const [boxPhotoFrontUrl, setBoxPhotoFrontUrl] = useState<string | null>(null);
-  const [boxPhotoBackUrl, setBoxPhotoBackUrl] = useState<string | null>(null);
-  const [bladePhotoUrl, setBladePhotoUrl] = useState<string | null>(null);
-  const [ratchetPhotoUrl, setRatchetPhotoUrl] = useState<string | null>(null);
-  const [bitPhotoUrl, setBitPhotoUrl] = useState<string | null>(null);
+  const [bladeStats, setBladeStats] = useState<Stats>(initial?.blade.stats ?? {});
+  const [ratchetStats, setRatchetStats] = useState<Stats>(initial?.ratchet.stats ?? {});
+  const [bitStats, setBitStats] = useState<Stats>(initial?.bit.stats ?? {});
+
+  const [boxPhotoFrontUrl, setBoxPhotoFrontUrl] = useState<string | null>(
+    initial?.boxPhotoFrontUrl ?? null,
+  );
+  const [boxPhotoBackUrl, setBoxPhotoBackUrl] = useState<string | null>(
+    initial?.boxPhotoBackUrl ?? null,
+  );
+  const [bladePhotoUrl, setBladePhotoUrl] = useState<string | null>(
+    initial?.blade.photoUrl ?? null,
+  );
+  const [ratchetPhotoUrl, setRatchetPhotoUrl] = useState<string | null>(
+    initial?.ratchet.photoUrl ?? null,
+  );
+  const [bitPhotoUrl, setBitPhotoUrl] = useState<string | null>(
+    initial?.bit.photoUrl ?? null,
+  );
 
   const [analyzeStatus, setAnalyzeStatus] = useState<
     "idle" | "analyzing" | "done" | "error"
@@ -63,6 +91,7 @@ export function AddBoxForm({
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
 
   const [isPending, startTransition] = useTransition();
+  const [isDeleting, startDeleteTransition] = useTransition();
 
   async function handleAnalyze() {
     const photoUrls = [boxPhotoFrontUrl, boxPhotoBackUrl].filter(
@@ -121,7 +150,19 @@ export function AddBoxForm({
     }
 
     startTransition(() => {
-      addBoxToInventory(fd);
+      if (isEdit) {
+        updateBoxInventory(boxId!, fd);
+      } else {
+        addBoxToInventory(fd);
+      }
+    });
+  }
+
+  function handleDelete() {
+    if (!boxId) return;
+    if (!window.confirm("Remove this box and its parts from your inventory?")) return;
+    startDeleteTransition(() => {
+      deleteBox(boxId);
     });
   }
 
@@ -131,8 +172,16 @@ export function AddBoxForm({
     <form onSubmit={handleSubmit} className="flex flex-col gap-6 pb-10">
       <div className="flex flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
         <div className="grid grid-cols-2 gap-3">
-          <PhotoCapture label="Box photo — front" onUploaded={setBoxPhotoFrontUrl} />
-          <PhotoCapture label="Box photo — back" onUploaded={setBoxPhotoBackUrl} />
+          <PhotoCapture
+            label="Box photo — front"
+            onUploaded={setBoxPhotoFrontUrl}
+            initialUrl={initial?.boxPhotoFrontUrl}
+          />
+          <PhotoCapture
+            label="Box photo — back"
+            onUploaded={setBoxPhotoBackUrl}
+            initialUrl={initial?.boxPhotoBackUrl}
+          />
         </div>
 
         <button
@@ -189,6 +238,7 @@ export function AddBoxForm({
         onChange={setBladeName}
         options={bladeOptions}
         onPhotoUploaded={setBladePhotoUrl}
+        initialPhotoUrl={initial?.blade.photoUrl}
         statFields={BLADE_STAT_FIELDS}
         stats={bladeStats}
         onStatChange={(key, value) => setBladeStats((s) => ({ ...s, [key]: value }))}
@@ -199,6 +249,7 @@ export function AddBoxForm({
         onChange={setRatchetName}
         options={ratchetOptions}
         onPhotoUploaded={setRatchetPhotoUrl}
+        initialPhotoUrl={initial?.ratchet.photoUrl}
         statFields={RATCHET_STAT_FIELDS}
         stats={ratchetStats}
         onStatChange={(key, value) => setRatchetStats((s) => ({ ...s, [key]: value }))}
@@ -209,6 +260,7 @@ export function AddBoxForm({
         onChange={setBitName}
         options={bitOptions}
         onPhotoUploaded={setBitPhotoUrl}
+        initialPhotoUrl={initial?.bit.photoUrl}
         statFields={BIT_STAT_FIELDS}
         stats={bitStats}
         onStatChange={(key, value) => setBitStats((s) => ({ ...s, [key]: value }))}
@@ -219,8 +271,28 @@ export function AddBoxForm({
         disabled={isPending || !bladeName || !ratchetName || !bitName}
         className="rounded-2xl bg-zinc-950 px-5 py-4 text-center text-base font-semibold text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950"
       >
-        {isPending ? "Saving…" : "Save to inventory"}
+        {isPending ? "Saving…" : isEdit ? "Save changes" : "Save to inventory"}
       </button>
+
+      {isEdit && (
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={isDeleting}
+          className="rounded-2xl border border-red-200 px-5 py-3 text-center text-sm font-semibold text-red-600 disabled:opacity-40 dark:border-red-900/50"
+        >
+          {isDeleting ? "Removing…" : "Delete this box"}
+        </button>
+      )}
+      {isEdit && (
+        <button
+          type="button"
+          onClick={() => router.push("/inventory")}
+          className="text-center text-sm text-zinc-500 dark:text-zinc-400"
+        >
+          Cancel
+        </button>
+      )}
     </form>
   );
 }
@@ -231,6 +303,7 @@ function PartField({
   onChange,
   options,
   onPhotoUploaded,
+  initialPhotoUrl,
   statFields,
   stats,
   onStatChange,
@@ -240,6 +313,7 @@ function PartField({
   onChange: (v: string) => void;
   options: PartOption[];
   onPhotoUploaded: (url: string) => void;
+  initialPhotoUrl?: string | null;
   statFields: StatField[];
   stats: Stats;
   onStatChange: (key: string, value: string) => void;
@@ -281,7 +355,11 @@ function PartField({
         ))}
       </div>
 
-      <PhotoCapture label={`${label} photo`} onUploaded={onPhotoUploaded} />
+      <PhotoCapture
+        label={`${label} photo`}
+        onUploaded={onPhotoUploaded}
+        initialUrl={initialPhotoUrl}
+      />
     </div>
   );
 }

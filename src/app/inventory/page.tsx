@@ -89,7 +89,7 @@ export default async function InventoryPage() {
                   📦
                 </div>
               )}
-              <div>
+              <div className="flex-1">
                 <p className="font-semibold text-zinc-950 dark:text-zinc-50">
                   {box.boxName ?? "Unnamed box"}
                 </p>
@@ -99,6 +99,12 @@ export default async function InventoryPage() {
                   </p>
                 )}
               </div>
+              <Link
+                href={`/inventory/${boxKey}/edit`}
+                className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-300"
+              >
+                Edit
+              </Link>
             </div>
             <div className="grid grid-cols-3 gap-2">
               {box.items.map(({ inventory: item, part }) => (

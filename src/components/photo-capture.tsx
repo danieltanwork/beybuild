@@ -5,12 +5,14 @@ import { useRef, useState } from "react";
 export function PhotoCapture({
   label,
   onUploaded,
+  initialUrl,
 }: {
   label: string;
   onUploaded: (url: string) => void;
+  initialUrl?: string | null;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [preview, setPreview] = useState<string | null>(initialUrl ?? null);
   const [status, setStatus] = useState<"idle" | "uploading" | "done" | "error">(
     "idle",
   );

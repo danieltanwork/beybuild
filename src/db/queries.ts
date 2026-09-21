@@ -58,6 +58,15 @@ export async function getPartById(id: string) {
   return rows[0];
 }
 
+export async function getBoxById(userId: string, boxId: string) {
+  const rows = await db
+    .select({ inventory, part: parts })
+    .from(inventory)
+    .innerJoin(parts, eq(inventory.partId, parts.id))
+    .where(and(eq(inventory.boxId, boxId), eq(inventory.userId, userId)));
+  return rows;
+}
+
 export async function getBuildsWithParts(userId: string) {
   return db
     .select({

@@ -59,9 +59,7 @@ async function findOrCreatePart(
   return inserted[0].id;
 }
 
-export async function addBoxToInventory(formData: FormData) {
-  const user = await stackServerApp.getUser({ or: "redirect" });
-
+async function resolveBoxForm(formData: FormData) {
   const boxCode = (formData.get("boxCode") as string)?.trim() || null;
   const boxName = (formData.get("boxName") as string)?.trim() || null;
   const boxPhotoFrontUrl = (formData.get("boxPhotoFrontUrl") as string) || null;
@@ -85,26 +83,80 @@ export async function addBoxToInventory(formData: FormData) {
     findOrCreatePart("bit", bitName, bitPhotoUrl, readStats(formData, "bit")),
   ]);
 
-  const rows = [
-    { partId: bladeId, photoUrl: bladePhotoUrl },
-    { partId: ratchetId, photoUrl: ratchetPhotoUrl },
-    { partId: bitId, photoUrl: bitPhotoUrl },
-  ];
+  return {
+    boxCode,
+    boxName,
+    boxPhotoFrontUrl,
+    boxPhotoBackUrl,
+    blade: { partId: bladeId, photoUrl: bladePhotoUrl },
+    ratchet: { partId: ratchetId, photoUrl: ratchetPhotoUrl },
+    bit: { partId: bitId, photoUrl: bitPhotoUrl },
+  };
+}
 
+export async function addBoxToInventory(formData: FormData) {
+  const user = await stackServerApp.getUser({ or: "redirect" });
+  const resolved = await resolveBoxForm(formData);
   const boxId = randomUUID();
 
   await db.insert(inventory).values(
-    rows.map((r) => ({
+    ([resolved.blade, resolved.ratchet, resolved.bit] as const).map((r) => ({
       userId: user.id,
       partId: r.partId,
       boxId,
-      boxCode,
-      boxName,
-      boxPhotoFrontUrl,
-      boxPhotoBackUrl,
+      boxCode: resolved.boxCode,
+      boxName: resolved.boxName,
+      boxPhotoFrontUrl: resolved.boxPhotoFrontUrl,
+      boxPhotoBackUrl: resolved.boxPhotoBackUrl,
       partPhotoUrl: r.photoUrl,
     })),
   );
+
+  revalidatePath("/inventory");
+  redirect("/inventory");
+}
+
+export async function updateBoxInventory(boxId: string, formData: FormData) {
+  const user = await stackServerApp.getUser({ or: "redirect" });
+  const resolved = await resolveBoxForm(formData);
+
+  const existingRows = await db
+    .select({ id: inventory.id, type: parts.type })
+    .from(inventory)
+    .innerJoin(parts, eq(inventory.partId, parts.id))
+    .where(and(eq(inventory.boxId, boxId), eq(inventory.userId, user.id)));
+
+  if (existingRows.length === 0) {
+    throw new Error("Box not found");
+  }
+
+  await Promise.all(
+    existingRows.map((row) => {
+      const r = resolved[row.type as PartType];
+      return db
+        .update(inventory)
+        .set({
+          partId: r.partId,
+          boxCode: resolved.boxCode,
+          boxName: resolved.boxName,
+          boxPhotoFrontUrl: resolved.boxPhotoFrontUrl,
+          boxPhotoBackUrl: resolved.boxPhotoBackUrl,
+          partPhotoUrl: r.photoUrl,
+        })
+        .where(eq(inventory.id, row.id));
+    }),
+  );
+
+  revalidatePath("/inventory");
+  redirect("/inventory");
+}
+
+export async function deleteBox(boxId: string) {
+  const user = await stackServerApp.getUser({ or: "redirect" });
+
+  await db
+    .delete(inventory)
+    .where(and(eq(inventory.boxId, boxId), eq(inventory.userId, user.id)));
 
   revalidatePath("/inventory");
   redirect("/inventory");
