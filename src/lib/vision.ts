@@ -16,7 +16,9 @@ const boxAnalysisSchema = z.object({
 
 export type BoxAnalysis = z.infer<typeof boxAnalysisSchema>;
 
-const PROMPT = `You are looking at photos of a Beyblade X toy box (front and/or back). Beyblade X sets are identified by a short product code like "BX-23", "UX-08", or "CX-05", and a set name that encodes three parts, e.g. "Phoenix Wing 9-60GF" = Blade "Phoenix Wing" + Ratchet "9-60" + Bit "GF".
+const PROMPT = `You are looking at photos of a Beyblade X toy box (front and/or back, possibly a Japanese-market box with Japanese text elsewhere on it). Beyblade X sets are identified by a short product code like "BX-23", "UX-14", or "CX-05", and a set name that encodes three parts, printed together as one string, e.g. "Phoenix Wing 9-60GF" or "Scorpiospear 0-70Z" = Blade name + Ratchet code ("9-60", "0-70" — a short number, a dash, then a 2-digit number) + Bit code ("GF", "Z" — 1-3 letters).
+
+The single most reliable source is usually a colored banner (often near the bottom of the front of the box) printed in plain Latin characters with the product code and the full set name together, even on an otherwise Japanese box — prefer that over piecing together fragments from elsewhere, and prefer it over any Japanese/katakana text. Ratchet codes are small print and easy to misread a digit in — look carefully and don't duplicate a digit (e.g. "0-70" is not "70-70").
 
 Read the box and record what you can actually see. Only fill in a field if you can read it in the photo(s) — never guess or invent a plausible-sounding value; leave it null instead.`;
 
@@ -28,28 +30,46 @@ const EXTRACT_TOOL: Anthropic.Tool = {
     properties: {
       boxCode: {
         type: ["string", "null"],
-        description: 'The product code, e.g. "BX-23". Null if not visible.',
+        description: 'The product code, e.g. "UX-14". Null if not visible.',
       },
       boxName: {
         type: ["string", "null"],
-        description: 'The full set name as printed, e.g. "Phoenix Wing 9-60GF". Null if not visible.',
+        description: 'The full set name as printed in Latin characters, e.g. "Scorpiospear 0-70Z". Null if not visible.',
       },
       bladeName: {
         type: ["string", "null"],
-        description: 'Just the blade\'s name, e.g. "Phoenix Wing". Null if unreadable.',
+        description: 'Just the blade\'s name, e.g. "Scorpiospear". Null if unreadable.',
       },
       ratchetName: {
         type: ["string", "null"],
-        description: 'Just the ratchet\'s code, e.g. "9-60". Null if unreadable.',
+        description: 'Just the ratchet\'s code, e.g. "0-70". Null if unreadable.',
       },
       bitName: {
         type: ["string", "null"],
-        description: 'Just the bit\'s code, e.g. "GF". Null if unreadable.',
+        description: 'Just the bit\'s code, e.g. "Z". Null if unreadable.',
       },
     },
     required: ["boxCode", "boxName", "bladeName", "ratchetName", "bitName"],
   },
 };
+
+// A Beyblade X set name is one printed string that encodes all three parts,
+// e.g. "Scorpiospear 0-70Z" -> Blade "Scorpiospear" + Ratchet "0-70" + Bit "Z".
+// Reading that single string once and splitting it here is more reliable than
+// asking the model to separately re-read the same three fields from smaller,
+// easier-to-misread fragments elsewhere on the box.
+const BOX_NAME_PATTERN = /^(.+?)\s+(\d{1,2}-\d{2})([A-Za-z]{1,3})$/;
+
+function deriveFromBoxName(boxName: string | null) {
+  if (!boxName) return null;
+  const match = boxName.trim().match(BOX_NAME_PATTERN);
+  if (!match) return null;
+  return {
+    bladeName: match[1].trim(),
+    ratchetName: match[2],
+    bitName: match[3],
+  };
+}
 
 export async function analyzeBoxPhotos(
   photoUrls: string[],
@@ -80,6 +100,9 @@ export async function analyzeBoxPhotos(
 
   const parsed = boxAnalysisSchema.safeParse(toolUse.input);
   if (!parsed.success) throw new Error("Vision model returned unexpected shape");
+
+  const derived = deriveFromBoxName(parsed.data.boxName);
+  if (derived) return { ...parsed.data, ...derived };
 
   return parsed.data;
 }
