@@ -15,7 +15,13 @@ export default async function InventoryPage() {
 
   const boxes = new Map<
     string,
-    { boxName: string | null; boxCode: string | null; boxPhotoUrl: string | null; items: typeof rows }
+    {
+      boxName: string | null;
+      boxCode: string | null;
+      boxPhotoFrontUrl: string | null;
+      boxPhotoBackUrl: string | null;
+      items: typeof rows;
+    }
   >();
 
   for (const row of rows) {
@@ -24,7 +30,8 @@ export default async function InventoryPage() {
       boxes.set(key, {
         boxName: row.inventory.boxName,
         boxCode: row.inventory.boxCode,
-        boxPhotoUrl: row.inventory.boxPhotoUrl,
+        boxPhotoFrontUrl: row.inventory.boxPhotoFrontUrl,
+        boxPhotoBackUrl: row.inventory.boxPhotoBackUrl,
         items: [],
       });
     }
@@ -58,13 +65,25 @@ export default async function InventoryPage() {
             className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
           >
             <div className="mb-3 flex items-center gap-3">
-              {box.boxPhotoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={box.boxPhotoUrl}
-                  alt={box.boxName ?? "Box"}
-                  className="h-14 w-14 rounded-lg object-cover"
-                />
+              {box.boxPhotoFrontUrl || box.boxPhotoBackUrl ? (
+                <div className="flex gap-1">
+                  {box.boxPhotoFrontUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={box.boxPhotoFrontUrl}
+                      alt={`${box.boxName ?? "Box"} front`}
+                      className="h-14 w-14 rounded-lg object-cover"
+                    />
+                  )}
+                  {box.boxPhotoBackUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={box.boxPhotoBackUrl}
+                      alt={`${box.boxName ?? "Box"} back`}
+                      className="h-14 w-14 rounded-lg object-cover"
+                    />
+                  )}
+                </div>
               ) : (
                 <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-zinc-100 text-xl dark:bg-zinc-800">
                   📦

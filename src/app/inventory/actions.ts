@@ -44,7 +44,8 @@ export async function addBoxToInventory(formData: FormData) {
 
   const boxCode = (formData.get("boxCode") as string)?.trim() || null;
   const boxName = (formData.get("boxName") as string)?.trim() || null;
-  const boxPhotoUrl = (formData.get("boxPhotoUrl") as string) || null;
+  const boxPhotoFrontUrl = (formData.get("boxPhotoFrontUrl") as string) || null;
+  const boxPhotoBackUrl = (formData.get("boxPhotoBackUrl") as string) || null;
 
   const bladeName = formData.get("bladeName") as string;
   const ratchetName = formData.get("ratchetName") as string;
@@ -79,7 +80,8 @@ export async function addBoxToInventory(formData: FormData) {
       boxId,
       boxCode,
       boxName,
-      boxPhotoUrl,
+      boxPhotoFrontUrl,
+      boxPhotoBackUrl,
       partPhotoUrl: r.photoUrl,
     })),
   );

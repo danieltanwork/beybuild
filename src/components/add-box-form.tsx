@@ -21,19 +21,55 @@ export function AddBoxForm({
   const [ratchetName, setRatchetName] = useState("");
   const [bitName, setBitName] = useState("");
 
-  const [boxPhotoUrl, setBoxPhotoUrl] = useState<string | null>(null);
+  const [boxPhotoFrontUrl, setBoxPhotoFrontUrl] = useState<string | null>(null);
+  const [boxPhotoBackUrl, setBoxPhotoBackUrl] = useState<string | null>(null);
   const [bladePhotoUrl, setBladePhotoUrl] = useState<string | null>(null);
   const [ratchetPhotoUrl, setRatchetPhotoUrl] = useState<string | null>(null);
   const [bitPhotoUrl, setBitPhotoUrl] = useState<string | null>(null);
 
+  const [analyzeStatus, setAnalyzeStatus] = useState<
+    "idle" | "analyzing" | "done" | "error"
+  >("idle");
+  const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+
   const [isPending, startTransition] = useTransition();
+
+  async function handleAnalyze() {
+    const photoUrls = [boxPhotoFrontUrl, boxPhotoBackUrl].filter(
+      (u): u is string => !!u,
+    );
+    if (photoUrls.length === 0) return;
+
+    setAnalyzeStatus("analyzing");
+    setAnalyzeError(null);
+    try {
+      const res = await fetch("/api/analyze-box", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ photoUrls }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't analyze the photos");
+
+      if (data.boxCode) setBoxCode(data.boxCode);
+      if (data.boxName) setBoxName(data.boxName);
+      if (data.bladeName) setBladeName(data.bladeName);
+      if (data.ratchetName) setRatchetName(data.ratchetName);
+      if (data.bitName) setBitName(data.bitName);
+      setAnalyzeStatus("done");
+    } catch (err) {
+      setAnalyzeStatus("error");
+      setAnalyzeError(err instanceof Error ? err.message : "Something went wrong");
+    }
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     const fd = new FormData();
     fd.set("boxCode", boxCode);
     fd.set("boxName", boxName);
-    if (boxPhotoUrl) fd.set("boxPhotoUrl", boxPhotoUrl);
+    if (boxPhotoFrontUrl) fd.set("boxPhotoFrontUrl", boxPhotoFrontUrl);
+    if (boxPhotoBackUrl) fd.set("boxPhotoBackUrl", boxPhotoBackUrl);
     fd.set("bladeName", bladeName);
     fd.set("ratchetName", ratchetName);
     fd.set("bitName", bitName);
@@ -46,9 +82,38 @@ export function AddBoxForm({
     });
   }
 
+  const canAnalyze = (boxPhotoFrontUrl || boxPhotoBackUrl) && analyzeStatus !== "analyzing";
+
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6 pb-10">
-      <PhotoCapture label="Box photo (optional)" onUploaded={setBoxPhotoUrl} />
+      <div className="flex flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+        <div className="grid grid-cols-2 gap-3">
+          <PhotoCapture label="Box photo — front" onUploaded={setBoxPhotoFrontUrl} />
+          <PhotoCapture label="Box photo — back" onUploaded={setBoxPhotoBackUrl} />
+        </div>
+
+        <button
+          type="button"
+          onClick={handleAnalyze}
+          disabled={!canAnalyze}
+          className="rounded-xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950"
+        >
+          {analyzeStatus === "analyzing"
+            ? "Reading box photos…"
+            : "✨ Fill in from photos"}
+        </button>
+        {analyzeStatus === "done" && (
+          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+            Filled in what we could read below — double check before saving.
+          </p>
+        )}
+        {analyzeStatus === "error" && (
+          <p className="text-xs text-red-500">
+            {analyzeError ?? "Couldn't read the photos"} — fill in the fields
+            manually below.
+          </p>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm">
