@@ -246,37 +246,51 @@ function PartCarousel({
           </button>
         </div>
       ) : (
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {parts.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => {
-                onSelect(p.id);
-                setExpanded(false);
-              }}
-              className={`flex w-20 shrink-0 flex-col items-center gap-1 rounded-xl border-2 p-1.5 ${
-                selectedId === p.id
-                  ? "border-zinc-950 dark:border-zinc-50"
-                  : "border-transparent"
-              }`}
-            >
-              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800">
-                {p.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={p.imageUrl}
-                    alt={p.name}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <span className="text-[10px] text-zinc-400">No photo</span>
-                )}
-              </div>
-              <span className="line-clamp-2 text-center text-[11px] leading-tight text-zinc-700 dark:text-zinc-300">
-                {p.name}
-              </span>
-            </button>
-          ))}
+        <div className="grid grid-cols-3 gap-2">
+          {parts.map((p) => {
+            const isSelected = selectedId === p.id;
+            return (
+              <button
+                key={p.id}
+                onClick={() => {
+                  onSelect(p.id);
+                  setExpanded(false);
+                }}
+                className={`overflow-hidden rounded-xl ring-2 transition ${
+                  isSelected
+                    ? "ring-emerald-500"
+                    : "ring-transparent hover:ring-zinc-200 dark:hover:ring-zinc-700"
+                }`}
+              >
+                <div className="relative flex aspect-square items-center justify-center bg-white">
+                  {p.imageUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={p.imageUrl}
+                      alt={p.name}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-[10px] text-zinc-400">No photo</span>
+                  )}
+                  {isSelected && (
+                    <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[11px] font-bold text-white">
+                      ✓
+                    </span>
+                  )}
+                </div>
+                <p
+                  className={`truncate px-1.5 py-1.5 text-center text-[11px] font-medium ${
+                    isSelected
+                      ? "bg-emerald-500 text-white"
+                      : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                  }`}
+                >
+                  {p.name}
+                </p>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
