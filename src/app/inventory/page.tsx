@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { stackServerApp } from "@/lib/stack";
-import { getInventoryWithParts } from "@/db/queries";
+import { getInventoryWithParts, type InventoryRow, type PartRow } from "@/db/queries";
 import { deleteInventoryItem } from "./actions";
 
 const typeLabel: Record<string, string> = {
@@ -8,6 +8,25 @@ const typeLabel: Record<string, string> = {
   ratchet: "Ratchet",
   bit: "Bit",
 };
+
+type ItemRow = { inventory: InventoryRow; part: PartRow };
+
+// Pair each box's items into per-beyblade groups (one blade + one ratchet +
+// one bit) by position within each type, so a normal box renders as one
+// clean 3-column row and a deck-set box renders as several — instead of a
+// single flat grid that looks fine for 3 items and sparse/empty for 1.
+function beyGroups(items: ItemRow[]) {
+  const byType = (t: string) => items.filter((it) => it.part.type === t);
+  const blades = byType("blade");
+  const ratchets = byType("ratchet");
+  const bits = byType("bit");
+  const count = Math.max(blades.length, ratchets.length, bits.length, 1);
+  return Array.from({ length: count }, (_, i) => ({
+    blade: blades[i] as ItemRow | undefined,
+    ratchet: ratchets[i] as ItemRow | undefined,
+    bit: bits[i] as ItemRow | undefined,
+  }));
+}
 
 export default async function InventoryPage() {
   const user = await stackServerApp.getUser({ or: "redirect" });
@@ -99,51 +118,68 @@ export default async function InventoryPage() {
                 Edit
               </Link>
             </div>
-            {(["blade", "ratchet", "bit"] as const).map((type) => {
-              const items = box.items.filter((it) => it.part.type === type);
-              if (items.length === 0) return null;
-              return (
-                <div key={type} className="mb-2 last:mb-0">
-                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-neon-fuchsia">
-                    {typeLabel[type]}
-                    {items.length > 1 ? ` (${items.length})` : ""}
+            {beyGroups(box.items).map((group, i, all) => (
+              <div key={i} className="mb-3 last:mb-0">
+                {all.length > 1 && (
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-neon-cyan">
+                    Beyblade {i + 1}
                   </p>
-                  <div className="flex gap-2 overflow-x-auto pb-1">
-                    {items.map(({ inventory: item, part }) => (
-                      <div key={item.id} className="flex w-20 shrink-0 flex-col items-center gap-1">
-                        {item.partPhotoUrl || part.imageUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={item.partPhotoUrl ?? part.imageUrl ?? undefined}
-                            alt={part.name}
-                            className="aspect-square w-full rounded-lg border border-border object-cover"
-                          />
-                        ) : (
-                          <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-border bg-background-elevated-2 text-xs text-muted-foreground">
-                            No photo
-                          </div>
-                        )}
-                        <p className="line-clamp-2 text-center text-[11px] leading-tight text-muted-foreground">
-                          {part.name}
-                        </p>
-                        <form action={deleteInventoryItem}>
-                          <input type="hidden" name="id" value={item.id} />
-                          <button
-                            type="submit"
-                            className="text-[11px] text-neon-red hover:underline"
-                          >
-                            Remove
-                          </button>
-                        </form>
-                      </div>
-                    ))}
-                  </div>
+                )}
+                <div className="grid grid-cols-3 gap-2">
+                  {(["blade", "ratchet", "bit"] as const).map((type) => (
+                    <ItemCell key={type} entry={group[type]} label={typeLabel[type]} />
+                  ))}
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         ))}
       </div>
     </main>
+  );
+}
+
+function ItemCell({ entry, label }: { entry?: ItemRow; label: string }) {
+  if (!entry) {
+    return (
+      <div className="flex flex-col items-center gap-1">
+        <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-border text-[10px] text-muted-foreground">
+          —
+        </div>
+        <p className="text-center text-[10px] uppercase tracking-wide text-muted-foreground">
+          {label}
+        </p>
+      </div>
+    );
+  }
+
+  const { inventory: item, part } = entry;
+  return (
+    <div className="flex flex-col items-center gap-1">
+      {item.partPhotoUrl || part.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={item.partPhotoUrl ?? part.imageUrl ?? undefined}
+          alt={part.name}
+          className="aspect-square w-full rounded-lg border border-border object-cover"
+        />
+      ) : (
+        <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-border bg-background-elevated-2 text-xs text-muted-foreground">
+          No photo
+        </div>
+      )}
+      <p className="text-center text-[11px] leading-tight text-muted-foreground">
+        <span className="block text-[10px] uppercase tracking-wide text-neon-fuchsia">
+          {label}
+        </span>
+        {part.name}
+      </p>
+      <form action={deleteInventoryItem}>
+        <input type="hidden" name="id" value={item.id} />
+        <button type="submit" className="text-[11px] text-neon-red hover:underline">
+          Remove
+        </button>
+      </form>
+    </div>
   );
 }
