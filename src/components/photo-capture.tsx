@@ -1,7 +1,6 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { upload } from "@vercel/blob/client";
 
 export function PhotoCapture({
   label,
@@ -23,11 +22,22 @@ export function PhotoCapture({
     setPreview(URL.createObjectURL(file));
     setStatus("uploading");
     try {
-      const blob = await upload(file.name, file, {
-        access: "public",
-        handleUploadUrl: "/api/blob/upload",
+      const res = await fetch("/api/upload-url", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filename: file.name, contentType: file.type }),
       });
-      onUploaded(blob.url);
+      if (!res.ok) throw new Error("Failed to get upload URL");
+      const { uploadUrl, publicUrl } = await res.json();
+
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "Content-Type": file.type },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("Upload failed");
+
+      onUploaded(publicUrl);
       setStatus("done");
     } catch {
       setStatus("error");
