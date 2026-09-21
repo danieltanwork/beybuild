@@ -1,8 +1,10 @@
 import "server-only";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "./index";
 import { builds, inventory, parts } from "./schema";
+
+type PartTypeFilter = "blade" | "ratchet" | "bit" | "blade_ratchet";
 
 const bladeParts = alias(parts, "blade_parts");
 const ratchetParts = alias(parts, "ratchet_parts");
@@ -55,18 +57,20 @@ export async function getInventoryWithParts(userId: string) {
 
 export async function getOwnedPartsByType(
   userId: string,
-  type: "blade" | "ratchet" | "bit",
+  type: PartTypeFilter | PartTypeFilter[],
 ) {
+  const types = Array.isArray(type) ? type : [type];
   return db
     .select({ part: parts, quantity: inventory.quantity })
     .from(inventory)
     .innerJoin(parts, eq(inventory.partId, parts.id))
-    .where(and(eq(inventory.userId, userId), eq(parts.type, type)))
+    .where(and(eq(inventory.userId, userId), inArray(parts.type, types)))
     .orderBy(parts.name);
 }
 
-export async function getAllPartsByType(type: "blade" | "ratchet" | "bit") {
-  return db.select().from(parts).where(eq(parts.type, type)).orderBy(parts.name);
+export async function getAllPartsByType(type: PartTypeFilter | PartTypeFilter[]) {
+  const types = Array.isArray(type) ? type : [type];
+  return db.select().from(parts).where(inArray(parts.type, types)).orderBy(parts.name);
 }
 
 export async function getPartById(id: string) {
@@ -93,7 +97,7 @@ export async function getLatestBuild(userId: string) {
     })
     .from(builds)
     .innerJoin(bladeParts, eq(builds.bladePartId, bladeParts.id))
-    .innerJoin(ratchetParts, eq(builds.ratchetPartId, ratchetParts.id))
+    .leftJoin(ratchetParts, eq(builds.ratchetPartId, ratchetParts.id))
     .innerJoin(bitParts, eq(builds.bitPartId, bitParts.id))
     .where(eq(builds.userId, userId))
     .orderBy(desc(builds.createdAt))
@@ -111,7 +115,7 @@ export async function getBuildsWithParts(userId: string) {
     })
     .from(builds)
     .innerJoin(bladeParts, eq(builds.bladePartId, bladeParts.id))
-    .innerJoin(ratchetParts, eq(builds.ratchetPartId, ratchetParts.id))
+    .leftJoin(ratchetParts, eq(builds.ratchetPartId, ratchetParts.id))
     .innerJoin(bitParts, eq(builds.bitPartId, bitParts.id))
     .where(eq(builds.userId, userId))
     .orderBy(builds.createdAt);

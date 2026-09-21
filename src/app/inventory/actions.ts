@@ -8,7 +8,7 @@ import { db } from "@/db";
 import { inventory, parts } from "@/db/schema";
 import { stackServerApp } from "@/lib/stack";
 
-type PartType = "blade" | "ratchet" | "bit";
+type PartType = "blade" | "ratchet" | "bit" | "blade_ratchet";
 type PartStats = Partial<{
   attack: number;
   defense: number;
@@ -16,12 +16,18 @@ type PartStats = Partial<{
   height: number;
   dash: number;
   burstResistance: number;
+  attackLow: number;
+  defenseLow: number;
+  staminaLow: number;
 }>;
 
 type BeyFormEntry = {
   bladeName: string;
   ratchetName: string;
   bitName: string;
+  // True when blade+ratchet are one fused physical part (no separate
+  // ratchet) — e.g. a "ratchet-integrated blade" like Hellsnether.
+  bladeIsIntegrated: boolean;
   bladePhotoUrl: string | null;
   ratchetPhotoUrl: string | null;
   bitPhotoUrl: string | null;
@@ -33,7 +39,10 @@ type BeyFormEntry = {
 function toStats(raw: Record<string, string> | undefined): PartStats {
   const stats: PartStats = {};
   if (!raw) return stats;
-  for (const key of ["attack", "defense", "stamina", "height", "dash", "burstResistance"] as const) {
+  for (const key of [
+    "attack", "defense", "stamina", "height", "dash", "burstResistance",
+    "attackLow", "defenseLow", "staminaLow",
+  ] as const) {
     const value = raw[key];
     if (typeof value === "string" && value.trim() !== "") {
       const n = Number(value);
@@ -89,7 +98,10 @@ async function resolveBoxForm(formData: FormData) {
     throw new Error("Add at least one beyblade (blade, ratchet, and bit)");
   }
   for (const b of beysRaw) {
-    if (!b.bladeName?.trim() || !b.ratchetName?.trim() || !b.bitName?.trim()) {
+    if (!b.bladeName?.trim() || !b.bitName?.trim()) {
+      throw new Error("Every beyblade needs at least a blade and bit name");
+    }
+    if (!b.bladeIsIntegrated && !b.ratchetName?.trim()) {
       throw new Error("Every beyblade needs a blade, ratchet, and bit name");
     }
   }
@@ -97,13 +109,20 @@ async function resolveBoxForm(formData: FormData) {
   const beys = await Promise.all(
     beysRaw.map(async (b) => {
       const [bladeId, ratchetId, bitId] = await Promise.all([
-        findOrCreatePart("blade", b.bladeName, b.bladePhotoUrl, toStats(b.bladeStats)),
-        findOrCreatePart("ratchet", b.ratchetName, b.ratchetPhotoUrl, toStats(b.ratchetStats)),
+        findOrCreatePart(
+          b.bladeIsIntegrated ? "blade_ratchet" : "blade",
+          b.bladeName,
+          b.bladePhotoUrl,
+          toStats(b.bladeStats),
+        ),
+        b.bladeIsIntegrated
+          ? Promise.resolve(null)
+          : findOrCreatePart("ratchet", b.ratchetName, b.ratchetPhotoUrl, toStats(b.ratchetStats)),
         findOrCreatePart("bit", b.bitName, b.bitPhotoUrl, toStats(b.bitStats)),
       ]);
       return {
         blade: { partId: bladeId, photoUrl: b.bladePhotoUrl },
-        ratchet: { partId: ratchetId, photoUrl: b.ratchetPhotoUrl },
+        ratchet: ratchetId ? { partId: ratchetId, photoUrl: b.ratchetPhotoUrl } : null,
         bit: { partId: bitId, photoUrl: b.bitPhotoUrl },
       };
     }),
@@ -117,17 +136,20 @@ function toInventoryRows(
   boxId: string,
   resolved: Awaited<ReturnType<typeof resolveBoxForm>>,
 ) {
-  return resolved.beys.flatMap((bey) =>
-    (["blade", "ratchet", "bit"] as const).map((type) => ({
-      userId,
-      partId: bey[type].partId,
-      boxId,
-      boxCode: resolved.boxCode,
-      boxName: resolved.boxName,
-      boxPhotoFrontUrl: resolved.boxPhotoFrontUrl,
-      boxPhotoBackUrl: resolved.boxPhotoBackUrl,
-      partPhotoUrl: bey[type].photoUrl,
-    })),
+  return resolved.beys.flatMap((bey, beyIndex) =>
+    ([bey.blade, bey.ratchet, bey.bit] as const)
+      .filter((entry): entry is { partId: string; photoUrl: string | null } => entry !== null)
+      .map((entry) => ({
+        userId,
+        partId: entry.partId,
+        boxId,
+        beyIndex,
+        boxCode: resolved.boxCode,
+        boxName: resolved.boxName,
+        boxPhotoFrontUrl: resolved.boxPhotoFrontUrl,
+        boxPhotoBackUrl: resolved.boxPhotoBackUrl,
+        partPhotoUrl: entry.photoUrl,
+      })),
   );
 }
 

@@ -7,7 +7,7 @@ export default async function BuildPage() {
   const user = await stackServerApp.getUser({ or: "redirect" });
 
   const [bladeRows, ratchetRows, bitRows, savedBuilds] = await Promise.all([
-    getOwnedPartsByType(user.id, "blade"),
+    getOwnedPartsByType(user.id, ["blade", "blade_ratchet"]),
     getOwnedPartsByType(user.id, "ratchet"),
     getOwnedPartsByType(user.id, "bit"),
     getBuildsWithParts(user.id),
@@ -21,10 +21,10 @@ export default async function BuildPage() {
     <main className="flex flex-1 flex-col gap-6 px-5 pt-8">
       <h1 className="text-2xl font-bold text-foreground">Build</h1>
 
-      {blades.length === 0 || ratchets.length === 0 || bits.length === 0 ? (
+      {blades.length === 0 || bits.length === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Add at least one blade, ratchet, and bit to your inventory to start
-          building combos.
+          Add at least one blade and bit to your inventory to start building
+          combos.
         </p>
       ) : (
         <BuildPicker blades={blades} ratchets={ratchets} bits={bits} />
@@ -45,7 +45,8 @@ export default async function BuildPage() {
                   {build.name}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  {blade.name} + {ratchet.name} + {bit.name}
+                  {blade.name}
+                  {ratchet ? ` + ${ratchet.name}` : ""} + {bit.name}
                 </p>
               </div>
               <form action={deleteBuild}>

@@ -57,8 +57,12 @@ export default async function Home() {
             <>
               <div className="flex items-center gap-2">
                 <HeroSlot part={latestBuild.blade} />
-                <span className="text-neon-fuchsia">+</span>
-                <HeroSlot part={latestBuild.ratchet} />
+                {latestBuild.ratchet && (
+                  <>
+                    <span className="text-neon-fuchsia">+</span>
+                    <HeroSlot part={latestBuild.ratchet} />
+                  </>
+                )}
                 <span className="text-neon-fuchsia">+</span>
                 <HeroSlot part={latestBuild.bit} />
               </div>

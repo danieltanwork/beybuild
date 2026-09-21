@@ -14,6 +14,11 @@ const BLADE_STAT_FIELDS: StatField[] = [
   { key: "defense", label: "DEF" },
   { key: "stamina", label: "STA" },
 ];
+const BLADE_LOW_STAT_FIELDS: StatField[] = [
+  { key: "attackLow", label: "ATK (Low)" },
+  { key: "defenseLow", label: "DEF (Low)" },
+  { key: "staminaLow", label: "STA (Low)" },
+];
 const RATCHET_STAT_FIELDS: StatField[] = [
   ...BLADE_STAT_FIELDS,
   { key: "height", label: "Height" },
@@ -28,6 +33,9 @@ type BeyState = {
   bladeName: string;
   ratchetName: string;
   bitName: string;
+  // True for a ratchet-integrated blade (e.g. Hellsnether) — blade and
+  // ratchet are one fused part, so this bey has no separate ratchet.
+  bladeIsIntegrated: boolean;
   bladeStats: Stats;
   ratchetStats: Stats;
   bitStats: Stats;
@@ -41,6 +49,7 @@ function emptyBey(): BeyState {
     bladeName: "",
     ratchetName: "",
     bitName: "",
+    bladeIsIntegrated: false,
     bladeStats: {},
     ratchetStats: {},
     bitStats: {},
@@ -60,7 +69,7 @@ function statsFromAnalysisBey(bey: Record<string, unknown>, prefix: string, fiel
 }
 
 type BeyInitial = {
-  blade: { name: string; photoUrl: string | null; stats: Stats };
+  blade: { name: string; photoUrl: string | null; stats: Stats; isIntegrated: boolean };
   ratchet: { name: string; photoUrl: string | null; stats: Stats };
   bit: { name: string; photoUrl: string | null; stats: Stats };
 };
@@ -70,6 +79,7 @@ function beyFromInitial(b: BeyInitial): BeyState {
     bladeName: b.blade.name,
     ratchetName: b.ratchet.name,
     bitName: b.bit.name,
+    bladeIsIntegrated: b.blade.isIntegrated,
     bladeStats: b.blade.stats,
     ratchetStats: b.ratchet.stats,
     bitStats: b.bit.stats,
@@ -159,7 +169,8 @@ export function AddBoxForm({
             bladeName: typeof bey.bladeName === "string" ? bey.bladeName : "",
             ratchetName: typeof bey.ratchetName === "string" ? bey.ratchetName : "",
             bitName: typeof bey.bitName === "string" ? bey.bitName : "",
-            bladeStats: statsFromAnalysisBey(bey, "blade", BLADE_STAT_FIELDS),
+            bladeIsIntegrated: bey.bladeIsIntegrated === true,
+            bladeStats: statsFromAnalysisBey(bey, "blade", [...BLADE_STAT_FIELDS, ...BLADE_LOW_STAT_FIELDS]),
             ratchetStats: statsFromAnalysisBey(bey, "ratchet", RATCHET_STAT_FIELDS),
             bitStats: statsFromAnalysisBey(bey, "bit", BIT_STAT_FIELDS),
             bladePhotoUrl: null,
@@ -202,7 +213,9 @@ export function AddBoxForm({
   }
 
   const canAnalyze = (boxPhotoFrontUrl || boxPhotoBackUrl) && analyzeStatus !== "analyzing";
-  const allValid = beys.every((b) => b.bladeName.trim() && b.ratchetName.trim() && b.bitName.trim());
+  const allValid = beys.every(
+    (b) => b.bladeName.trim() && b.bitName.trim() && (b.bladeIsIntegrated || b.ratchetName.trim()),
+  );
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6 pb-10">
@@ -273,8 +286,8 @@ export function AddBoxForm({
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-neon-cyan">
                 Beyblade {i + 1}
-                {bey.bladeName && bey.ratchetName && bey.bitName
-                  ? ` — ${bey.bladeName} ${bey.ratchetName}${bey.bitName}`
+                {bey.bladeName && (bey.bladeIsIntegrated || bey.ratchetName) && bey.bitName
+                  ? ` — ${bey.bladeName} ${bey.bladeIsIntegrated ? "" : bey.ratchetName}${bey.bitName}`
                   : ""}
               </h2>
               <button
@@ -286,6 +299,15 @@ export function AddBoxForm({
               </button>
             </div>
           )}
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
+            <input
+              type="checkbox"
+              checked={bey.bladeIsIntegrated}
+              onChange={(e) => updateBey(i, { bladeIsIntegrated: e.target.checked })}
+              className="h-4 w-4 accent-neon-cyan"
+            />
+            Ratchet-integrated blade (blade and ratchet are one fused part, e.g. Hellsnether)
+          </label>
           <PartField
             label="Blade"
             value={bey.bladeName}
@@ -293,21 +315,23 @@ export function AddBoxForm({
             options={bladeOptions}
             onPhotoUploaded={(url) => updateBey(i, { bladePhotoUrl: url })}
             initialPhotoUrl={bey.bladePhotoUrl}
-            statFields={BLADE_STAT_FIELDS}
+            statFields={bey.bladeIsIntegrated ? [...BLADE_STAT_FIELDS, ...BLADE_LOW_STAT_FIELDS] : BLADE_STAT_FIELDS}
             stats={bey.bladeStats}
             onStatChange={(key, value) => updateBeyStat(i, "bladeStats", key, value)}
           />
-          <PartField
-            label="Ratchet"
-            value={bey.ratchetName}
-            onChange={(v) => updateBey(i, { ratchetName: v })}
-            options={ratchetOptions}
-            onPhotoUploaded={(url) => updateBey(i, { ratchetPhotoUrl: url })}
-            initialPhotoUrl={bey.ratchetPhotoUrl}
-            statFields={RATCHET_STAT_FIELDS}
-            stats={bey.ratchetStats}
-            onStatChange={(key, value) => updateBeyStat(i, "ratchetStats", key, value)}
-          />
+          {!bey.bladeIsIntegrated && (
+            <PartField
+              label="Ratchet"
+              value={bey.ratchetName}
+              onChange={(v) => updateBey(i, { ratchetName: v })}
+              options={ratchetOptions}
+              onPhotoUploaded={(url) => updateBey(i, { ratchetPhotoUrl: url })}
+              initialPhotoUrl={bey.ratchetPhotoUrl}
+              statFields={RATCHET_STAT_FIELDS}
+              stats={bey.ratchetStats}
+              onStatChange={(key, value) => updateBeyStat(i, "ratchetStats", key, value)}
+            />
+          )}
           <PartField
             label="Bit"
             value={bey.bitName}

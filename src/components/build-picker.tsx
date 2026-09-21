@@ -6,7 +6,7 @@ import { createBuild } from "@/app/build/actions";
 type Part = {
   id: string;
   name: string;
-  type: "blade" | "ratchet" | "bit";
+  type: "blade" | "ratchet" | "bit" | "blade_ratchet";
   imageUrl: string | null;
   attack: number | null;
   defense: number | null;
@@ -14,6 +14,9 @@ type Part = {
   height: number | null;
   dash: number | null;
   burstResistance: number | null;
+  attackLow: number | null;
+  defenseLow: number | null;
+  staminaLow: number | null;
 };
 
 const STAT_LABELS = {
@@ -60,8 +63,12 @@ export function BuildPicker({
     [bladeId, ratchetId, bitId, blades, ratchets, bits],
   );
 
+  // A ratchet-integrated blade's own stats already include the ratchet's
+  // contribution, so it has no separate ratchet part and needs one either.
+  const isIntegrated = selected.blade?.type === "blade_ratchet";
+
   const totals = useMemo(() => {
-    const parts = [selected.blade, selected.ratchet, selected.bit];
+    const parts = [selected.blade, isIntegrated ? undefined : selected.ratchet, selected.bit];
     const sum = (key: keyof typeof STAT_LABELS) =>
       parts.reduce((s, p) => s + (p?.[key] ?? 0), 0);
     return {
@@ -72,15 +79,15 @@ export function BuildPicker({
       dash: sum("dash"),
       burstResistance: sum("burstResistance"),
     };
-  }, [selected]);
+  }, [selected, isIntegrated]);
 
-  const ready = bladeId && ratchetId && bitId;
+  const ready = bladeId && (ratchetId || isIntegrated) && bitId;
 
   function handleSave() {
     if (!ready) return;
     const fd = new FormData();
     fd.set("bladePartId", bladeId!);
-    fd.set("ratchetPartId", ratchetId!);
+    if (!isIntegrated) fd.set("ratchetPartId", ratchetId!);
     fd.set("bitPartId", bitId!);
     fd.set("name", name);
     startTransition(() => {
@@ -94,7 +101,13 @@ export function BuildPicker({
       <div className="glow-fuchsia neon-card flex items-center justify-center gap-3 rounded-2xl p-4">
         <PreviewSlot part={selected.blade} placeholder="Blade" />
         <span className="text-neon-fuchsia">+</span>
-        <PreviewSlot part={selected.ratchet} placeholder="Ratchet" />
+        {isIntegrated ? (
+          <div className="flex h-16 w-16 items-center justify-center rounded-xl border border-dashed border-border text-center text-[9px] text-muted-foreground">
+            Built into blade
+          </div>
+        ) : (
+          <PreviewSlot part={selected.ratchet} placeholder="Ratchet" />
+        )}
         <span className="text-neon-fuchsia">+</span>
         <PreviewSlot part={selected.bit} placeholder="Bit" />
       </div>
@@ -113,7 +126,19 @@ export function BuildPicker({
       )}
 
       <PartCarousel title="Blade" parts={blades} selectedId={bladeId} onSelect={setBladeId} />
-      <PartCarousel title="Ratchet" parts={ratchets} selectedId={ratchetId} onSelect={setRatchetId} />
+      {isIntegrated ? (
+        <div className="neon-card rounded-2xl p-4">
+          <span className="rounded-full bg-gradient-to-r from-neon-cyan to-neon-violet px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-background">
+            Ratchet
+          </span>
+          <p className="mt-2 text-xs text-muted-foreground">
+            {selected.blade?.name} is a ratchet-integrated blade — no
+            separate ratchet needed.
+          </p>
+        </div>
+      ) : (
+        <PartCarousel title="Ratchet" parts={ratchets} selectedId={ratchetId} onSelect={setRatchetId} />
+      )}
       <PartCarousel title="Bit" parts={bits} selectedId={bitId} onSelect={setBitId} />
 
       {ready && (
@@ -246,6 +271,11 @@ function PartCarousel({
             <p className="text-center text-sm font-semibold text-foreground">
               {current?.name}
             </p>
+            {current?.attackLow != null && (
+              <p className="text-center text-[10px] text-neon-cyan">
+                Low Mode: {current.attackLow}/{current.defenseLow}/{current.staminaLow}
+              </p>
+            )}
             {parts.length > 1 && (
               <p className="text-[11px] text-muted-foreground">
                 {index + 1} / {parts.length}

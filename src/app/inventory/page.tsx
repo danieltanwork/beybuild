@@ -11,21 +11,37 @@ const typeLabel: Record<string, string> = {
 
 type ItemRow = { inventory: InventoryRow; part: PartRow };
 
-// Pair each box's items into per-beyblade groups (one blade + one ratchet +
-// one bit) by position within each type, so a normal box renders as one
-// clean 3-column row and a deck-set box renders as several — instead of a
-// single flat grid that looks fine for 3 items and sparse/empty for 1.
+// Group each box's items into per-beyblade groups (one blade + one ratchet +
+// one bit), so a normal box renders as one clean 3-column row and a deck-set
+// box renders as several. New boxes tag each row with beyIndex so grouping
+// is exact even when a bey has no ratchet (a ratchet-integrated blade).
+// Older boxes saved before that column existed fall back to pairing
+// positionally by type.
 function beyGroups(items: ItemRow[]) {
-  const byType = (t: string) => items.filter((it) => it.part.type === t);
-  const blades = byType("blade");
-  const ratchets = byType("ratchet");
-  const bits = byType("bit");
-  const count = Math.max(blades.length, ratchets.length, bits.length, 1);
-  return Array.from({ length: count }, (_, i) => ({
-    blade: blades[i] as ItemRow | undefined,
-    ratchet: ratchets[i] as ItemRow | undefined,
-    bit: bits[i] as ItemRow | undefined,
-  }));
+  const oneGroup = (group: ItemRow[]) => ({
+    blade: group.find((it) => it.part.type === "blade" || it.part.type === "blade_ratchet"),
+    ratchet: group.find((it) => it.part.type === "ratchet"),
+    bit: group.find((it) => it.part.type === "bit"),
+  });
+
+  if (items.every((it) => it.inventory.beyIndex === null)) {
+    const byType = (t: string) => items.filter((it) => it.part.type === t);
+    const blades = byType("blade").concat(byType("blade_ratchet"));
+    const ratchets = byType("ratchet");
+    const bits = byType("bit");
+    const count = Math.max(blades.length, ratchets.length, bits.length, 1);
+    return Array.from({ length: count }, (_, i) =>
+      oneGroup([blades[i], ratchets[i], bits[i]].filter((it): it is ItemRow => !!it)),
+    );
+  }
+
+  const byIndex = new Map<number, ItemRow[]>();
+  for (const item of items) {
+    const idx = item.inventory.beyIndex ?? 0;
+    if (!byIndex.has(idx)) byIndex.set(idx, []);
+    byIndex.get(idx)!.push(item);
+  }
+  return [...byIndex.entries()].sort(([a], [b]) => a - b).map(([, group]) => oneGroup(group));
 }
 
 export default async function InventoryPage() {
@@ -126,9 +142,20 @@ export default async function InventoryPage() {
                   </p>
                 )}
                 <div className="grid grid-cols-3 gap-2">
-                  {(["blade", "ratchet", "bit"] as const).map((type) => (
-                    <ItemCell key={type} entry={group[type]} label={typeLabel[type]} />
-                  ))}
+                  <ItemCell entry={group.blade} label={typeLabel.blade} />
+                  {group.blade?.part.type === "blade_ratchet" ? (
+                    <div className="flex flex-col items-center gap-1">
+                      <div className="flex aspect-square w-full flex-col items-center justify-center rounded-lg border border-dashed border-neon-cyan/40 px-1 text-center text-[9px] text-neon-cyan">
+                        Built into blade
+                      </div>
+                      <p className="text-center text-[10px] uppercase tracking-wide text-muted-foreground">
+                        Ratchet
+                      </p>
+                    </div>
+                  ) : (
+                    <ItemCell entry={group.ratchet} label={typeLabel.ratchet} />
+                  )}
+                  <ItemCell entry={group.bit} label={typeLabel.bit} />
                 </div>
               </div>
             ))}

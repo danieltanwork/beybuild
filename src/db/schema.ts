@@ -11,7 +11,9 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 
-export const partType = pgEnum("part_type", ["blade", "ratchet", "bit"]);
+// "blade_ratchet" = a ratchet-integrated blade (e.g. Hellsnether): the blade
+// and ratchet are one fused physical part with no separate ratchet piece.
+export const partType = pgEnum("part_type", ["blade", "ratchet", "bit", "blade_ratchet"]);
 
 export const parts = pgTable(
   "parts",
@@ -27,6 +29,12 @@ export const parts = pgTable(
     height: integer("height"), // ratchets: printed "height" stat
     dash: integer("dash"), // bits: printed "dash" stat
     burstResistance: integer("burst_resistance"), // bits: printed "burst resistance" stat
+    // Some parts (e.g. a ratchet-integrated blade with a manual height-change
+    // gimmick) print two stat profiles — attack/defense/stamina above are the
+    // primary ("Normal Mode") numbers, these are the alternate ("Low Mode") ones.
+    attackLow: integer("attack_low"),
+    defenseLow: integer("defense_low"),
+    staminaLow: integer("stamina_low"),
     weightG: numeric("weight_g", { precision: 5, scale: 2 }),
     imageUrl: text("image_url"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -44,6 +52,10 @@ export const inventory = pgTable(
       .references(() => parts.id, { onDelete: "cascade" }),
     quantity: integer("quantity").notNull().default(1),
     boxId: uuid("box_id"),
+    // Groups rows belonging to the same physical beyblade within a
+    // multi-bey (Deck Set) box, since parts-per-bey can vary (a
+    // ratchet-integrated blade has no separate ratchet row).
+    beyIndex: integer("bey_index"),
     boxCode: text("box_code"),
     boxName: text("box_name"),
     boxPhotoFrontUrl: text("box_photo_front_url"),
@@ -65,9 +77,8 @@ export const builds = pgTable(
     bladePartId: uuid("blade_part_id")
       .notNull()
       .references(() => parts.id),
-    ratchetPartId: uuid("ratchet_part_id")
-      .notNull()
-      .references(() => parts.id),
+    // Null when bladePartId is a ratchet-integrated blade (no separate ratchet).
+    ratchetPartId: uuid("ratchet_part_id").references(() => parts.id),
     bitPartId: uuid("bit_part_id")
       .notNull()
       .references(() => parts.id),

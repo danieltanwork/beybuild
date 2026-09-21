@@ -16,9 +16,17 @@ const beySchema = z.object({
   bladeName: z.string().nullable(),
   ratchetName: z.string().nullable(),
   bitName: z.string().nullable(),
+  // True for a "ratchet-integrated blade" (e.g. Hellsnether) — blade and
+  // ratchet are one fused part, so this bey has no separate ratchet.
+  bladeIsIntegrated: z.boolean().nullable(),
   bladeAttack: nullableInt,
   bladeDefense: nullableInt,
   bladeStamina: nullableInt,
+  // Only set for a ratchet-integrated blade with a mode-change gimmick that
+  // prints two stat profiles (Normal Mode above, Low Mode here).
+  bladeAttackLow: nullableInt,
+  bladeDefenseLow: nullableInt,
+  bladeStaminaLow: nullableInt,
   ratchetAttack: nullableInt,
   ratchetDefense: nullableInt,
   ratchetStamina: nullableInt,
@@ -45,7 +53,9 @@ Some boxes ("Starter" or "Booster" sets) contain ONE beyblade. Others ("Deck Set
 
 Beyblade X sets are identified by a short overall product code like "BX-23", "UX-14", or "UX-15", printed once for the whole box — put that in boxCode, and the box's own title (e.g. "Sharkscale Deck Set", or for a single-bey box just its bey name) in boxName.
 
-Each beyblade's own name is one printed string that encodes three parts, e.g. "Phoenix Wing 9-60GF" or "Scorpiospear 0-70Z" = Blade name + Ratchet code (a short number, a dash, then a 2-digit number, e.g. "9-60", "0-70") + Bit code ("GF", "Z" — 1-3 letters). Some blade names end in their own letter, e.g. "Hellsbrave J" — that letter belongs to the BLADE, not the ratchet, even though it sits right before the ratchet number (so "Hellsbrave J3-60GF" is Blade "Hellsbrave J" + Ratchet "3-60" + Bit "GF"); don't assume a leading letter before a ratchet number is part of the ratchet code. Put the full string in that bey's "name" field. The back of the box usually prints each part's name separately and explicitly in its own labeled block (e.g. a Japanese box labels them ブレード/Blade, ラチェット/Ratchet, ビット/Bit) — always prefer reading bladeName/ratchetName/bitName directly from those labeled blocks over splitting the combined name string yourself, and fill in all three whenever you can read them. The single most reliable source for the combined "name" field is usually a colored banner in plain Latin characters, even on an otherwise Japanese box — prefer that over piecing together fragments elsewhere, and prefer it over Japanese/katakana text. Ratchet codes are small print and easy to misread a digit in — look carefully and don't duplicate a digit (e.g. "0-70" is not "70-70").
+Each beyblade's own name is normally one printed string that encodes three parts, e.g. "Phoenix Wing 9-60GF" or "Scorpiospear 0-70Z" = Blade name + Ratchet code (a short number, a dash, then a 2-digit number, e.g. "9-60", "0-70") + Bit code ("GF", "Z" — 1-3 letters). Some blade names end in their own letter, e.g. "Hellsbrave J" — that letter belongs to the BLADE, not the ratchet, even though it sits right before the ratchet number (so "Hellsbrave J3-60GF" is Blade "Hellsbrave J" + Ratchet "3-60" + Bit "GF"); don't assume a leading letter before a ratchet number is part of the ratchet code. Put the full string in that bey's "name" field. The back of the box usually prints each part's name separately and explicitly in its own labeled block (e.g. a Japanese box labels them ブレード/Blade, ラチェット/Ratchet, ビット/Bit) — always prefer reading bladeName/ratchetName/bitName directly from those labeled blocks over splitting the combined name string yourself, and fill in all three whenever you can read them. The single most reliable source for the combined "name" field is usually a colored banner in plain Latin characters, even on an otherwise Japanese box — prefer that over piecing together fragments elsewhere, and prefer it over Japanese/katakana text. Ratchet codes are small print and easy to misread a digit in — look carefully and don't duplicate a digit (e.g. "0-70" is not "70-70").
+
+Some blades are printed as "ラチェット一体型ブレード" ("ratchet-integrated blade") — the blade and ratchet are ONE fused physical part, so that bey has no separate ratchet at all. You'll see this from the part being labeled "ラチェット一体型ブレード/[name]" instead of a plain "ブレード/[name]", and the bey's printed name itself will have no ratchet-code segment (e.g. just "Hellsnether-Z" = Blade "Hellsnether" + Bit "Z", nothing in between). When you see this, set bladeIsIntegrated to true, put the blade's name in bladeName as usual, and leave ratchetName and all ratchetXxx fields null — do not invent a ratchet. Many ratchet-integrated blades also have a manual height-change gimmick with TWO ways to sit (look for "ノーマルモード"/Normal Mode and "ローモード"/Low Mode labels, usually color-coded — orange/yellow for Normal Mode, blue for Low Mode) and print two numbers per stat like "50/70" (Normal Mode first, Low Mode second, sometimes as two overlapping bars in those same two colors). Put the Normal Mode (orange/first) numbers in bladeAttack/bladeDefense/bladeStamina as usual, and the Low Mode (blue/second) numbers in bladeAttackLow/bladeDefenseLow/bladeStaminaLow. If a blade only shows one number per stat, it doesn't have this gimmick — leave the *Low fields null.
 
 The back of the box has a printed stats table for each beyblade, with one bar-chart block of numbers per part (Blade, then Ratchet, then Bit). The tricky part: each bar-chart block of numbers is printed ABOVE the labeled text that names that part, not below it — the label comes AFTER its numbers, not before. Reading top to bottom for one beyblade: first a quoted special-technique name in "" marks (e.g. "ディープブレイク") with a description, and beside it 3 stat bars (攻撃/防御/持久 = Attack/Defense/Stamina) — those 3 numbers are the BLADE's stats, even though no "ブレード" label has appeared yet. Immediately after come the blade's own picture and its "ブレード/[name]" label + description — that label is only naming/describing the blade whose numbers you just read above it; it does not introduce new numbers. Right after that label comes the next bar-chart block (4 bars: 攻撃/防御/持久/高さ = Attack/Defense/Stamina/Height) — those numbers are the RATCHET's stats, and the "ラチェット/[code]" label + description that follows is just naming that ratchet. Right after THAT label comes a final bar-chart block (up to 5 bars: 攻撃/防御/持久/ダッシュ/バースト耐性 = Attack/Defense/Stamina/Dash/Burst Resistance) — those numbers are the BIT's stats, named by the "ビット/[code]" label that follows them. In short: always attribute a bar-chart block of numbers to the part name printed immediately AFTER it, never the one immediately before it. Bits often do have their own Attack/Defense/Stamina bars printed, not just Dash/Burst Resistance — read every bar that's actually shown for the bit's block. If a blade has a "Dash Change" gimmick showing two numbers joined by an arrow (e.g. "25→55"), record only the first/base number, not the second.
 
@@ -72,9 +82,16 @@ const BEY_ITEM_SCHEMA = {
       type: ["string", "null"],
       description: 'Just the bit\'s code, e.g. "UF". Null if you can\'t confidently split it out.',
     },
-    bladeAttack: { type: ["integer", "null"], description: "This beyblade's blade printed Attack stat." },
-    bladeDefense: { type: ["integer", "null"], description: "This beyblade's blade printed Defense stat." },
-    bladeStamina: { type: ["integer", "null"], description: "This beyblade's blade printed Stamina stat." },
+    bladeIsIntegrated: {
+      type: ["boolean", "null"],
+      description: "True if this is a \"ratchet-integrated blade\" (labeled ラチェット一体型ブレード) with no separate ratchet part. Null/false otherwise.",
+    },
+    bladeAttack: { type: ["integer", "null"], description: "This beyblade's blade printed Attack stat (Normal Mode, if it has a mode-change gimmick)." },
+    bladeDefense: { type: ["integer", "null"], description: "This beyblade's blade printed Defense stat (Normal Mode, if it has a mode-change gimmick)." },
+    bladeStamina: { type: ["integer", "null"], description: "This beyblade's blade printed Stamina stat (Normal Mode, if it has a mode-change gimmick)." },
+    bladeAttackLow: { type: ["integer", "null"], description: "Low Mode Attack stat, only for a blade with a Normal/Low mode-change gimmick. Null otherwise." },
+    bladeDefenseLow: { type: ["integer", "null"], description: "Low Mode Defense stat, only for a blade with a Normal/Low mode-change gimmick. Null otherwise." },
+    bladeStaminaLow: { type: ["integer", "null"], description: "Low Mode Stamina stat, only for a blade with a Normal/Low mode-change gimmick. Null otherwise." },
     ratchetAttack: { type: ["integer", "null"], description: "This beyblade's ratchet printed Attack stat." },
     ratchetDefense: { type: ["integer", "null"], description: "This beyblade's ratchet printed Defense stat." },
     ratchetStamina: { type: ["integer", "null"], description: "This beyblade's ratchet printed Stamina stat." },
@@ -86,8 +103,9 @@ const BEY_ITEM_SCHEMA = {
     bitBurstResistance: { type: ["integer", "null"], description: "This beyblade's bit printed Burst Resistance stat." },
   },
   required: [
-    "name", "bladeName", "ratchetName", "bitName",
+    "name", "bladeName", "ratchetName", "bitName", "bladeIsIntegrated",
     "bladeAttack", "bladeDefense", "bladeStamina",
+    "bladeAttackLow", "bladeDefenseLow", "bladeStaminaLow",
     "ratchetAttack", "ratchetDefense", "ratchetStamina", "ratchetHeight",
     "bitAttack", "bitDefense", "bitStamina", "bitDash", "bitBurstResistance",
   ],
@@ -173,7 +191,7 @@ export async function analyzeBoxPhotos(
     // like "Hellsbrave J", distinct from a ratchet code) that a blind regex
     // split of the combined name field can't distinguish. Only fall back to
     // splitting the combined name when a direct field is missing.
-    if (bey.bladeName && bey.ratchetName && bey.bitName) return bey;
+    if (bey.bladeIsIntegrated || (bey.bladeName && bey.ratchetName && bey.bitName)) return bey;
     const derived = deriveFromBeyName(bey.name);
     return derived
       ? {

@@ -7,7 +7,7 @@ export default async function AddInventoryPage() {
   await stackServerApp.getUser({ or: "redirect" });
 
   const [bladeOptions, ratchetOptions, bitOptions] = await Promise.all([
-    getAllPartsByType("blade"),
+    getAllPartsByType(["blade", "blade_ratchet"]),
     getAllPartsByType("ratchet"),
     getAllPartsByType("bit"),
   ]);
