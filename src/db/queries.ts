@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "./index";
 import { builds, inventory, parts } from "./schema";
@@ -25,6 +25,22 @@ export async function getBuildsCount(userId: string) {
     .select({ count: sql<number>`count(*)` })
     .from(builds)
     .where(eq(builds.userId, userId));
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function getBoxCount(userId: string) {
+  const rows = await db
+    .select({ count: sql<number>`count(distinct ${inventory.boxId})` })
+    .from(inventory)
+    .where(eq(inventory.userId, userId));
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function getUniquePartCount(userId: string) {
+  const rows = await db
+    .select({ count: sql<number>`count(distinct ${inventory.partId})` })
+    .from(inventory)
+    .where(eq(inventory.userId, userId));
   return Number(rows[0]?.count ?? 0);
 }
 
@@ -65,6 +81,24 @@ export async function getBoxById(userId: string, boxId: string) {
     .innerJoin(parts, eq(inventory.partId, parts.id))
     .where(and(eq(inventory.boxId, boxId), eq(inventory.userId, userId)));
   return rows;
+}
+
+export async function getLatestBuild(userId: string) {
+  const rows = await db
+    .select({
+      build: builds,
+      blade: bladeParts,
+      ratchet: ratchetParts,
+      bit: bitParts,
+    })
+    .from(builds)
+    .innerJoin(bladeParts, eq(builds.bladePartId, bladeParts.id))
+    .innerJoin(ratchetParts, eq(builds.ratchetPartId, ratchetParts.id))
+    .innerJoin(bitParts, eq(builds.bitPartId, bitParts.id))
+    .where(eq(builds.userId, userId))
+    .orderBy(desc(builds.createdAt))
+    .limit(1);
+  return rows[0];
 }
 
 export async function getBuildsWithParts(userId: string) {
