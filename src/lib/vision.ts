@@ -4,7 +4,10 @@ import { z } from "zod";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const model = process.env.VISION_MODEL || "claude-haiku-4-5-20251001";
+// Reading a short name is easy for any tier; reading a dense multi-block
+// numeric stats table accurately needs a stronger model — Haiku mixed up
+// which number belonged to which block on a real test box.
+const model = process.env.VISION_MODEL || "claude-sonnet-5";
 
 const nullableInt = z.number().int().nullable();
 
@@ -34,7 +37,9 @@ const PROMPT = `You are looking at photos of a Beyblade X toy box (front and/or 
 
 The single most reliable source for the name/code is usually a colored banner (often near the bottom of the front of the box) printed in plain Latin characters with the product code and the full set name together, even on an otherwise Japanese box — prefer that over piecing together fragments from elsewhere, and prefer it over any Japanese/katakana text. Ratchet codes are small print and easy to misread a digit in — look carefully and don't duplicate a digit (e.g. "0-70" is not "70-70").
 
-The back of the box usually has a printed stats table with a separate block for each of the three parts (Blade, Ratchet, Bit), each showing numeric bars, often in Japanese: 攻撃 = Attack, 防御 = Defense, 持久 = Stamina, 高さ = Height (ratchet only), ダッシュ = Dash (bit only), バースト耐性 = Burst Resistance (bit only). If a blade has a "Dash Change" gimmick showing two numbers joined by an arrow (e.g. "25→55"), record only the first/base number, not the second.
+The back of the box usually has a printed stats table with three separate blocks stacked vertically, one per part in this order: Blade, then Ratchet, then Bit. Each block shows its own numeric bars, often in Japanese: 攻撃 = Attack, 防御 = Defense, 持久 = Stamina, 高さ = Height (ratchet block only), ダッシュ = Dash (bit block only), バースト耐性 = Burst Resistance (bit block only). If the blade has a "Dash Change" gimmick showing two numbers joined by an arrow (e.g. "25→55"), record only the first/base number, not the second.
+
+Each block's numbers belong ONLY to that block — never reuse or copy a number from one block into another. Before calling the tool, first write out in plain text exactly what you see in each of the three blocks, one line per block, listing every label and its number in the order they're printed (e.g. "Blade: Attack 25, Defense 55, Stamina 30" / "Ratchet: Attack 3, Defense 13, Stamina 14, Height 70" / "Bit: Attack 30, Defense 20, Stamina 15, Dash 35, Burst Resistance 80"). Then call extract_box_info using exactly those transcribed values — do not let numbers drift between blocks.
 
 Read the box and record what you can actually see. Only fill in a field if you can read it in the photo(s) — never guess or invent a plausible-sounding value; leave it null instead.`;
 
@@ -109,9 +114,9 @@ export async function analyzeBoxPhotos(
 ): Promise<BoxAnalysis> {
   const response = await anthropic.messages.create({
     model,
-    max_tokens: 800,
+    max_tokens: 1500,
     tools: [EXTRACT_TOOL],
-    tool_choice: { type: "tool", name: "extract_box_info" },
+    tool_choice: { type: "any" },
     messages: [
       {
         role: "user",
