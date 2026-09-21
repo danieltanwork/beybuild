@@ -45,7 +45,7 @@ Some boxes ("Starter" or "Booster" sets) contain ONE beyblade. Others ("Deck Set
 
 Beyblade X sets are identified by a short overall product code like "BX-23", "UX-14", or "UX-15", printed once for the whole box — put that in boxCode, and the box's own title (e.g. "Sharkscale Deck Set", or for a single-bey box just its bey name) in boxName.
 
-Each beyblade's own name is one printed string that encodes three parts, e.g. "Phoenix Wing 9-60GF" or "Scorpiospear 0-70Z" = Blade name + Ratchet code ("9-60", "0-70" — an optional letter, a short number, a dash, then a 2-digit number; some CX-line ratchets have that letter prefix, e.g. "J3-60") + Bit code ("GF", "Z" — 1-3 letters). Put the full string in that bey's "name" field; you don't need to split it into bladeName/ratchetName/bitName yourself unless the split isn't obvious — but if you can read them as separate clean tokens, fill those in too. The single most reliable source for these names is usually a colored banner in plain Latin characters, even on an otherwise Japanese box — prefer that over piecing together fragments elsewhere, and prefer it over Japanese/katakana text. Ratchet codes are small print and easy to misread a digit in — look carefully and don't duplicate a digit (e.g. "0-70" is not "70-70").
+Each beyblade's own name is one printed string that encodes three parts, e.g. "Phoenix Wing 9-60GF" or "Scorpiospear 0-70Z" = Blade name + Ratchet code (a short number, a dash, then a 2-digit number, e.g. "9-60", "0-70") + Bit code ("GF", "Z" — 1-3 letters). Some blade names end in their own letter, e.g. "Hellsbrave J" — that letter belongs to the BLADE, not the ratchet, even though it sits right before the ratchet number (so "Hellsbrave J3-60GF" is Blade "Hellsbrave J" + Ratchet "3-60" + Bit "GF"); don't assume a leading letter before a ratchet number is part of the ratchet code. Put the full string in that bey's "name" field. The back of the box usually prints each part's name separately and explicitly in its own labeled block (e.g. a Japanese box labels them ブレード/Blade, ラチェット/Ratchet, ビット/Bit) — always prefer reading bladeName/ratchetName/bitName directly from those labeled blocks over splitting the combined name string yourself, and fill in all three whenever you can read them. The single most reliable source for the combined "name" field is usually a colored banner in plain Latin characters, even on an otherwise Japanese box — prefer that over piecing together fragments elsewhere, and prefer it over Japanese/katakana text. Ratchet codes are small print and easy to misread a digit in — look carefully and don't duplicate a digit (e.g. "0-70" is not "70-70").
 
 The back of the box has a printed stats table with a separate block per part per beyblade (Blade, then Ratchet, then Bit — repeated for each beyblade in the box), each showing numeric bars, often in Japanese: 攻撃 = Attack, 防御 = Defense, 持久 = Stamina, 高さ = Height (ratchet block only), ダッシュ = Dash (bit block only), バースト耐性 = Burst Resistance (bit block only). If a blade has a "Dash Change" gimmick showing two numbers joined by an arrow (e.g. "25→55"), record only the first/base number, not the second.
 
@@ -119,10 +119,11 @@ const EXTRACT_TOOL: Anthropic.Tool = {
 
 // A Beyblade X bey name is one printed string that encodes all three parts,
 // e.g. "Scorpiospear 0-70Z" -> Blade "Scorpiospear" + Ratchet "0-70" + Bit "Z".
-// Some CX-line ratchets have a letter prefix, e.g. "Hellsbrave J3-60GF" ->
-// Ratchet "J3-60". Reading that single string once and splitting it here is
-// more reliable than asking the model to separately re-read the same three
-// fields from smaller, easier-to-misread fragments elsewhere on the box.
+// This is only a fallback for when the model couldn't read bladeName/
+// ratchetName/bitName directly from the box's own labeled per-part blocks
+// (see analyzeBoxPhotos) — a blind regex split can't tell a blade name's own
+// trailing letter (e.g. "Hellsbrave J") apart from a ratchet-code prefix, so
+// the model's direct reads take priority whenever all three are present.
 const BEY_NAME_PATTERN = /^(.+?)\s+([A-Za-z]?\d{1,2}-\d{2})([A-Za-z]{1,3})$/;
 
 function deriveFromBeyName(name: string | null) {
@@ -167,8 +168,21 @@ export async function analyzeBoxPhotos(
   if (!parsed.success) throw new Error("Vision model returned unexpected shape");
 
   const beys = parsed.data.beys.map((bey) => {
+    // Trust the model's own direct per-part reads first — it can see labeled
+    // breakdowns on the box (e.g. a blade name with its own letter suffix,
+    // like "Hellsbrave J", distinct from a ratchet code) that a blind regex
+    // split of the combined name field can't distinguish. Only fall back to
+    // splitting the combined name when a direct field is missing.
+    if (bey.bladeName && bey.ratchetName && bey.bitName) return bey;
     const derived = deriveFromBeyName(bey.name);
-    return derived ? { ...bey, ...derived } : bey;
+    return derived
+      ? {
+          ...bey,
+          bladeName: bey.bladeName ?? derived.bladeName,
+          ratchetName: bey.ratchetName ?? derived.ratchetName,
+          bitName: bey.bitName ?? derived.bitName,
+        }
+      : bey;
   });
 
   return { ...parsed.data, beys };
