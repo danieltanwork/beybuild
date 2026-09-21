@@ -48,13 +48,11 @@ export function PhotoCapture({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-        {label}
-      </span>
+      <span className="text-sm font-medium text-muted-foreground">{label}</span>
       <button
         type="button"
         onClick={() => inputRef.current?.click()}
-        className="relative flex aspect-square w-full max-w-[200px] items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-zinc-300 bg-zinc-50 text-sm text-zinc-400 dark:border-zinc-700 dark:bg-zinc-900"
+        className="relative flex aspect-square w-full max-w-[200px] items-center justify-center overflow-hidden rounded-xl border-2 border-dashed border-neon-cyan/40 bg-background-elevated-2 text-sm text-muted-foreground"
       >
         {preview ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -63,12 +61,12 @@ export function PhotoCapture({
           <span>📷 Tap to take photo</span>
         )}
         {status === "uploading" && (
-          <span className="absolute inset-0 flex items-center justify-center bg-black/40 text-xs font-medium text-white">
+          <span className="absolute inset-0 flex items-center justify-center bg-black/60 text-xs font-medium text-neon-cyan">
             Uploading…
           </span>
         )}
         {status === "error" && (
-          <span className="absolute inset-x-0 bottom-0 bg-red-600 py-1 text-center text-xs text-white">
+          <span className="absolute inset-x-0 bottom-0 bg-neon-red py-1 text-center text-xs text-white">
             Upload failed, tap to retry
           </span>
         )}

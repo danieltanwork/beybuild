@@ -17,7 +17,7 @@ export function BottomNav() {
   if (!user || pathname.startsWith("/handler")) return null;
 
   return (
-    <nav className="fixed bottom-0 inset-x-0 z-40 flex border-t border-zinc-200 bg-white/95 backdrop-blur dark:border-zinc-800 dark:bg-black/95">
+    <nav className="fixed bottom-0 inset-x-0 z-40 flex border-t border-border bg-background-elevated/90 backdrop-blur-lg">
       {links.map((link) => {
         const active =
           link.href === "/" ? pathname === "/" : pathname.startsWith(link.href);
@@ -25,13 +25,15 @@ export function BottomNav() {
           <Link
             key={link.href}
             href={link.href}
-            className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs font-medium ${
-              active
-                ? "text-zinc-950 dark:text-zinc-50"
-                : "text-zinc-400 dark:text-zinc-500"
+            className={`flex flex-1 flex-col items-center gap-0.5 py-2.5 text-xs font-medium transition-colors ${
+              active ? "text-neon-cyan" : "text-muted-foreground"
             }`}
           >
-            <span className="text-xl leading-none">{link.icon}</span>
+            <span
+              className={`text-xl leading-none ${active ? "drop-shadow-[0_0_6px_#22e8f5]" : ""}`}
+            >
+              {link.icon}
+            </span>
             {link.label}
           </Link>
         );

@@ -8,6 +8,13 @@ import {
   getUniquePartCount,
 } from "@/db/queries";
 
+const STAT_ACCENTS = [
+  { text: "text-neon-cyan", glow: "glow-cyan" },
+  { text: "text-neon-fuchsia", glow: "glow-fuchsia" },
+  { text: "text-neon-lime", glow: "glow-lime" },
+  { text: "text-neon-violet", glow: "" },
+] as const;
+
 export default async function Home() {
   const user = await stackServerApp.getUser({ or: "redirect" });
   const [boxCount, inventoryCount, uniquePartCount, buildsCount, latestBuild] =
@@ -19,45 +26,52 @@ export default async function Home() {
       getLatestBuild(user.id),
     ]);
 
+  const stats = [
+    { href: "/inventory", value: boxCount, label: "Boxes logged" },
+    { href: "/inventory", value: inventoryCount, label: "Parts owned" },
+    { href: "/inventory", value: uniquePartCount, label: "Unique parts" },
+    { href: "/build", value: buildsCount, label: "Saved builds" },
+  ];
+
   return (
     <main className="flex flex-1 flex-col gap-5 pt-8">
-      <div className="mx-5 overflow-hidden rounded-3xl bg-gradient-to-br from-zinc-800 via-zinc-900 to-black">
+      <div className="glow-fuchsia mx-5 overflow-hidden rounded-3xl border border-neon-fuchsia/30 bg-gradient-to-br from-background-elevated-2 via-background-elevated to-background">
         <div className="flex items-center justify-between px-5 pt-5">
           <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-emerald-400">
+            <p className="text-xs font-semibold uppercase tracking-widest text-neon-cyan">
               Welcome back
             </p>
-            <h1 className="text-xl font-bold text-white">
+            <h1 className="text-xl font-bold text-foreground">
               {user.displayName ?? "Blader"}
             </h1>
           </div>
           {latestBuild && (
-            <span className="rounded-full bg-white/10 px-3 py-1 text-[11px] font-medium text-white/80">
+            <span className="rounded-full border border-neon-lime/40 bg-neon-lime/10 px-3 py-1 text-[11px] font-semibold text-neon-lime">
               Latest build
             </span>
           )}
         </div>
 
-        <div className="flex flex-col items-center gap-3 px-5 py-6">
+        <div className="flex flex-col items-center gap-3 px-5 py-7">
           {latestBuild ? (
             <>
               <div className="flex items-center gap-2">
                 <HeroSlot part={latestBuild.blade} />
-                <span className="text-white/30">+</span>
+                <span className="text-neon-fuchsia">+</span>
                 <HeroSlot part={latestBuild.ratchet} />
-                <span className="text-white/30">+</span>
+                <span className="text-neon-fuchsia">+</span>
                 <HeroSlot part={latestBuild.bit} />
               </div>
-              <p className="text-sm font-semibold text-white">
+              <p className="text-sm font-semibold text-foreground">
                 {latestBuild.build.name}
               </p>
             </>
           ) : (
             <>
-              <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-white/10 text-3xl">
+              <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-neon-cyan/30 bg-neon-cyan/5 text-3xl">
                 🌀
               </div>
-              <p className="text-center text-sm text-white/70">
+              <p className="text-center text-sm text-muted-foreground">
                 No builds yet — assemble your first combo
               </p>
             </>
@@ -66,22 +80,31 @@ export default async function Home() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 px-5">
-        <StatCard href="/inventory" value={boxCount} label="Boxes logged" />
-        <StatCard href="/inventory" value={inventoryCount} label="Parts owned" />
-        <StatCard href="/inventory" value={uniquePartCount} label="Unique parts" />
-        <StatCard href="/build" value={buildsCount} label="Saved builds" />
+        {stats.map((stat, i) => {
+          const accent = STAT_ACCENTS[i % STAT_ACCENTS.length];
+          return (
+            <Link
+              key={stat.label}
+              href={stat.href}
+              className={`neon-card rounded-2xl p-4 ${accent.glow}`}
+            >
+              <p className={`text-3xl font-bold ${accent.text}`}>{stat.value}</p>
+              <p className="text-sm text-muted-foreground">{stat.label}</p>
+            </Link>
+          );
+        })}
       </div>
 
       <div className="flex flex-col gap-3 px-5 pb-4">
         <Link
           href="/inventory/add"
-          className="rounded-2xl bg-emerald-500 px-5 py-4 text-center text-base font-semibold text-white"
+          className="glow-cyan rounded-2xl bg-gradient-to-r from-neon-cyan to-neon-violet px-5 py-4 text-center text-base font-bold text-background"
         >
           + Add a box to your inventory
         </Link>
         <Link
           href="/build"
-          className="rounded-2xl border border-zinc-200 px-5 py-4 text-center text-base font-semibold text-zinc-950 dark:border-zinc-800 dark:text-zinc-50"
+          className="neon-card rounded-2xl px-5 py-4 text-center text-base font-semibold text-foreground"
         >
           Create a build
         </Link>
@@ -92,7 +115,7 @@ export default async function Home() {
 
 function HeroSlot({ part }: { part: { name: string; imageUrl: string | null } }) {
   return (
-    <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl bg-white/10 text-[9px] text-white/50">
+    <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-xl border border-border bg-background-elevated-2 text-[9px] text-muted-foreground">
       {part.imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={part.imageUrl} alt={part.name} className="h-full w-full object-cover" />
@@ -100,25 +123,5 @@ function HeroSlot({ part }: { part: { name: string; imageUrl: string | null } })
         part.name
       )}
     </div>
-  );
-}
-
-function StatCard({
-  href,
-  value,
-  label,
-}: {
-  href: string;
-  value: number;
-  label: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-    >
-      <p className="text-3xl font-bold text-emerald-500">{value}</p>
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">{label}</p>
-    </Link>
   );
 }

@@ -25,6 +25,15 @@ const STAT_LABELS = {
   burstResistance: "Burst",
 } as const;
 
+const STAT_ACCENTS = [
+  "text-neon-cyan",
+  "text-neon-fuchsia",
+  "text-neon-lime",
+  "text-neon-violet",
+  "text-neon-cyan",
+  "text-neon-fuchsia",
+] as const;
+
 export function BuildPicker({
   blades,
   ratchets,
@@ -82,18 +91,23 @@ export function BuildPicker({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-center gap-3 rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="glow-fuchsia neon-card flex items-center justify-center gap-3 rounded-2xl p-4">
         <PreviewSlot part={selected.blade} placeholder="Blade" />
-        <span className="text-zinc-300">+</span>
+        <span className="text-neon-fuchsia">+</span>
         <PreviewSlot part={selected.ratchet} placeholder="Ratchet" />
-        <span className="text-zinc-300">+</span>
+        <span className="text-neon-fuchsia">+</span>
         <PreviewSlot part={selected.bit} placeholder="Bit" />
       </div>
 
       {ready && (
         <div className="flex flex-wrap gap-2">
-          {(Object.keys(STAT_LABELS) as (keyof typeof STAT_LABELS)[]).map((key) => (
-            <StatPill key={key} label={STAT_LABELS[key]} value={totals[key]} />
+          {(Object.keys(STAT_LABELS) as (keyof typeof STAT_LABELS)[]).map((key, i) => (
+            <StatPill
+              key={key}
+              label={STAT_LABELS[key]}
+              value={totals[key]}
+              accent={STAT_ACCENTS[i]}
+            />
           ))}
         </div>
       )}
@@ -103,17 +117,17 @@ export function BuildPicker({
       <PartCarousel title="Bit" parts={bits} selectedId={bitId} onSelect={setBitId} />
 
       {ready && (
-        <div className="sticky bottom-16 flex gap-2 rounded-2xl border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="glow-cyan neon-card sticky bottom-16 flex gap-2 rounded-2xl p-3">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Name this build (optional)"
-            className="flex-1 rounded-lg border border-zinc-300 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-950"
+            className="flex-1 rounded-lg border border-border bg-background-elevated-2 px-3 py-2 text-sm text-foreground focus:border-neon-cyan focus:outline-none"
           />
           <button
             onClick={handleSave}
             disabled={isPending}
-            className="rounded-lg bg-zinc-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950"
+            className="rounded-lg bg-gradient-to-r from-neon-cyan to-neon-violet px-4 py-2 text-sm font-bold text-background disabled:opacity-40"
           >
             {isPending ? "Saving…" : "Save"}
           </button>
@@ -125,7 +139,7 @@ export function BuildPicker({
 
 function PreviewSlot({ part, placeholder }: { part?: Part; placeholder: string }) {
   return (
-    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl bg-zinc-100 text-[10px] text-zinc-400 dark:bg-zinc-800">
+    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border border-border bg-background-elevated-2 text-[10px] text-muted-foreground">
       {part?.imageUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={part.imageUrl} alt={part.name} className="h-full w-full object-cover" />
@@ -136,15 +150,21 @@ function PreviewSlot({ part, placeholder }: { part?: Part; placeholder: string }
   );
 }
 
-function StatPill({ label, value }: { label: string; value: number }) {
+function StatPill({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: number;
+  accent: string;
+}) {
   return (
-    <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 py-1.5 pl-3 pr-2.5 dark:border-zinc-800 dark:bg-zinc-900">
-      <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+    <div className="flex items-center gap-1.5 rounded-full border border-border bg-background-elevated py-1.5 pl-3 pr-2.5">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
         {label}
       </span>
-      <span className="rounded-full bg-zinc-950 px-1.5 py-0.5 text-xs font-bold text-white dark:bg-zinc-50 dark:text-zinc-950">
-        {value}
-      </span>
+      <span className={`text-xs font-bold ${accent}`}>{value}</span>
     </div>
   );
 }
@@ -165,10 +185,8 @@ function PartCarousel({
   if (parts.length === 0) {
     return (
       <div>
-        <h2 className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-          {title}
-        </h2>
-        <p className="text-xs text-zinc-400">
+        <h2 className="mb-2 text-sm font-semibold text-neon-fuchsia">{title}</h2>
+        <p className="text-xs text-muted-foreground">
           No {title.toLowerCase()}s in your inventory yet.
         </p>
       </div>
@@ -184,16 +202,16 @@ function PartCarousel({
   }
 
   return (
-    <div className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="neon-card rounded-2xl p-4">
       <div className="mb-3 flex items-center justify-between">
-        <span className="rounded-full bg-zinc-950 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white dark:bg-zinc-50 dark:text-zinc-950">
+        <span className="rounded-full bg-gradient-to-r from-neon-cyan to-neon-violet px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-background">
           {title}
         </span>
         {parts.length > 1 && (
           <button
             type="button"
             onClick={() => setExpanded((e) => !e)}
-            className="text-xs font-medium text-zinc-500 underline dark:text-zinc-400"
+            className="text-xs font-medium text-neon-cyan underline"
           >
             {expanded ? "Hide list" : `Browse all (${parts.length})`}
           </button>
@@ -207,13 +225,13 @@ function PartCarousel({
             onClick={() => step(-1)}
             disabled={parts.length < 2}
             aria-label={`Previous ${title.toLowerCase()}`}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200 text-lg text-zinc-500 disabled:opacity-30 dark:border-zinc-800 dark:text-zinc-400"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-neon-cyan/40 text-lg text-neon-cyan disabled:opacity-30"
           >
             ‹
           </button>
 
           <div className="flex flex-1 flex-col items-center gap-2">
-            <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-2xl bg-zinc-100 dark:bg-zinc-800">
+            <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-2xl border border-border bg-background-elevated-2">
               {current?.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
@@ -222,14 +240,14 @@ function PartCarousel({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span className="text-xs text-zinc-400">No photo</span>
+                <span className="text-xs text-muted-foreground">No photo</span>
               )}
             </div>
-            <p className="text-center text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+            <p className="text-center text-sm font-semibold text-foreground">
               {current?.name}
             </p>
             {parts.length > 1 && (
-              <p className="text-[11px] text-zinc-400">
+              <p className="text-[11px] text-muted-foreground">
                 {index + 1} / {parts.length}
               </p>
             )}
@@ -240,7 +258,7 @@ function PartCarousel({
             onClick={() => step(1)}
             disabled={parts.length < 2}
             aria-label={`Next ${title.toLowerCase()}`}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200 text-lg text-zinc-500 disabled:opacity-30 dark:border-zinc-800 dark:text-zinc-400"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-neon-cyan/40 text-lg text-neon-cyan disabled:opacity-30"
           >
             ›
           </button>
@@ -258,8 +276,8 @@ function PartCarousel({
                 }}
                 className={`overflow-hidden rounded-xl ring-2 transition ${
                   isSelected
-                    ? "ring-emerald-500"
-                    : "ring-transparent hover:ring-zinc-200 dark:hover:ring-zinc-700"
+                    ? "glow-lime ring-neon-lime"
+                    : "ring-transparent hover:ring-border"
                 }`}
               >
                 <div className="relative flex aspect-square items-center justify-center bg-white">
@@ -271,10 +289,10 @@ function PartCarousel({
                       className="h-full w-full object-cover"
                     />
                   ) : (
-                    <span className="text-[10px] text-zinc-400">No photo</span>
+                    <span className="text-[10px] text-muted-foreground">No photo</span>
                   )}
                   {isSelected && (
-                    <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[11px] font-bold text-white">
+                    <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-neon-lime text-[11px] font-bold text-background">
                       ✓
                     </span>
                   )}
@@ -282,8 +300,8 @@ function PartCarousel({
                 <p
                   className={`truncate px-1.5 py-1.5 text-center text-[11px] font-medium ${
                     isSelected
-                      ? "bg-emerald-500 text-white"
-                      : "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                      ? "bg-neon-lime text-background"
+                      : "bg-background-elevated-2 text-muted-foreground"
                   }`}
                 >
                   {p.name}

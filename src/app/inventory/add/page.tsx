@@ -15,14 +15,12 @@ export default async function AddInventoryPage() {
   return (
     <main className="flex flex-1 flex-col gap-4 px-5 pt-8">
       <div className="flex items-center gap-2">
-        <Link href="/inventory" className="text-sm text-zinc-500">
+        <Link href="/inventory" className="text-sm text-neon-cyan">
           ← Inventory
         </Link>
       </div>
-      <h1 className="text-2xl font-bold text-zinc-950 dark:text-zinc-50">
-        Add a box
-      </h1>
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+      <h1 className="text-2xl font-bold text-foreground">Add a box</h1>
+      <p className="text-sm text-muted-foreground">
         Snap the box back and each part, or just type the names — start typing
         to match parts you&apos;ve already logged.
       </p>

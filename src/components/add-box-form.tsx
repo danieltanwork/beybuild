@@ -170,7 +170,7 @@ export function AddBoxForm({
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6 pb-10">
-      <div className="flex flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="neon-card flex flex-col gap-3 rounded-2xl p-4">
         <div className="grid grid-cols-2 gap-3">
           <PhotoCapture
             label="Box photo — front"
@@ -188,19 +188,19 @@ export function AddBoxForm({
           type="button"
           onClick={handleAnalyze}
           disabled={!canAnalyze}
-          className="rounded-xl bg-zinc-950 px-4 py-3 text-sm font-semibold text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950"
+          className="glow-fuchsia rounded-xl bg-gradient-to-r from-neon-fuchsia to-neon-violet px-4 py-3 text-sm font-bold text-white disabled:opacity-40"
         >
           {analyzeStatus === "analyzing"
             ? "Reading box photos…"
             : "✨ Fill in from photos"}
         </button>
         {analyzeStatus === "done" && (
-          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+          <p className="text-xs text-neon-lime">
             Filled in what we could read below — double check before saving.
           </p>
         )}
         {analyzeStatus === "error" && (
-          <p className="text-xs text-red-500">
+          <p className="text-xs text-neon-red">
             {analyzeError ?? "Couldn't read the photos"} — fill in the fields
             manually below.
           </p>
@@ -209,25 +209,23 @@ export function AddBoxForm({
 
       <div className="grid grid-cols-2 gap-3">
         <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">
+          <span className="font-medium text-muted-foreground">
             Product code
           </span>
           <input
             value={boxCode}
             onChange={(e) => setBoxCode(e.target.value)}
             placeholder="BX-23"
-            className="rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+            className="rounded-lg border border-border bg-background-elevated px-3 py-2 text-foreground focus:border-neon-cyan focus:outline-none"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">
-            Set name
-          </span>
+          <span className="font-medium text-muted-foreground">Set name</span>
           <input
             value={boxName}
             onChange={(e) => setBoxName(e.target.value)}
             placeholder="Phoenix Wing 9-60GF"
-            className="rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+            className="rounded-lg border border-border bg-background-elevated px-3 py-2 text-foreground focus:border-neon-cyan focus:outline-none"
           />
         </label>
       </div>
@@ -269,7 +267,7 @@ export function AddBoxForm({
       <button
         type="submit"
         disabled={isPending || !bladeName || !ratchetName || !bitName}
-        className="rounded-2xl bg-zinc-950 px-5 py-4 text-center text-base font-semibold text-white disabled:opacity-40 dark:bg-zinc-50 dark:text-zinc-950"
+        className="glow-cyan rounded-2xl bg-gradient-to-r from-neon-cyan to-neon-violet px-5 py-4 text-center text-base font-bold text-background disabled:opacity-40"
       >
         {isPending ? "Saving…" : isEdit ? "Save changes" : "Save to inventory"}
       </button>
@@ -279,7 +277,7 @@ export function AddBoxForm({
           type="button"
           onClick={handleDelete}
           disabled={isDeleting}
-          className="rounded-2xl border border-red-200 px-5 py-3 text-center text-sm font-semibold text-red-600 disabled:opacity-40 dark:border-red-900/50"
+          className="rounded-2xl border border-neon-red/40 px-5 py-3 text-center text-sm font-semibold text-neon-red disabled:opacity-40"
         >
           {isDeleting ? "Removing…" : "Delete this box"}
         </button>
@@ -288,7 +286,7 @@ export function AddBoxForm({
         <button
           type="button"
           onClick={() => router.push("/inventory")}
-          className="text-center text-sm text-zinc-500 dark:text-zinc-400"
+          className="text-center text-sm text-muted-foreground"
         >
           Cancel
         </button>
@@ -320,17 +318,15 @@ function PartField({
 }) {
   const listId = `${label.toLowerCase()}-options`;
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+    <div className="neon-card flex flex-col gap-3 rounded-2xl p-4">
       <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-zinc-700 dark:text-zinc-300">
-          {label} name
-        </span>
+        <span className="font-medium text-neon-fuchsia">{label} name</span>
         <input
           value={value}
           onChange={(e) => onChange(e.target.value)}
           list={listId}
           placeholder={`e.g. ${label === "Blade" ? "Phoenix Wing" : label === "Ratchet" ? "9-60" : "GF"}`}
-          className="rounded-lg border border-zinc-300 px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900"
+          className="rounded-lg border border-border bg-background-elevated-2 px-3 py-2 text-foreground focus:border-neon-cyan focus:outline-none"
           required
         />
         <datalist id={listId}>
@@ -343,13 +339,13 @@ function PartField({
       <div className="flex flex-wrap gap-2">
         {statFields.map((f) => (
           <label key={f.key} className="flex flex-col gap-0.5 text-xs">
-            <span className="text-zinc-500 dark:text-zinc-400">{f.label}</span>
+            <span className="text-muted-foreground">{f.label}</span>
             <input
               type="number"
               inputMode="numeric"
               value={stats[f.key] ?? ""}
               onChange={(e) => onStatChange(f.key, e.target.value)}
-              className="w-16 rounded-lg border border-zinc-300 px-2 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-900"
+              className="w-16 rounded-lg border border-border bg-background-elevated-2 px-2 py-1.5 text-sm text-foreground focus:border-neon-cyan focus:outline-none"
             />
           </label>
         ))}

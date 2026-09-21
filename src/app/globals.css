@@ -1,26 +1,70 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #05060f;
+  --background-elevated: #0d1020;
+  --background-elevated-2: #131731;
+  --foreground: #f1f4ff;
+  --muted-foreground: #8b93b8;
+  --border: #242844;
+
+  --neon-cyan: #22e8f5;
+  --neon-fuchsia: #ef3fef;
+  --neon-lime: #c6ff3d;
+  --neon-violet: #8b5cf6;
+  --neon-red: #ff3b5c;
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-background-elevated: var(--background-elevated);
+  --color-background-elevated-2: var(--background-elevated-2);
   --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-neon-cyan: var(--neon-cyan);
+  --color-neon-fuchsia: var(--neon-fuchsia);
+  --color-neon-lime: var(--neon-lime);
+  --color-neon-violet: var(--neon-violet);
+  --color-neon-red: var(--neon-red);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  color-scheme: dark;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
+  min-height: 100%;
+}
+
+/* Fixed ambient glow behind all page content — three soft neon blobs. */
+.ambient-glow {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 640px 420px at 10% -8%, #22e8f52e, transparent 60%),
+    radial-gradient(ellipse 560px 420px at 105% 16%, #ef3fef24, transparent 60%),
+    radial-gradient(ellipse 560px 520px at 50% 108%, #8b5cf626, transparent 65%);
+}
+
+.neon-card {
+  background: var(--background-elevated);
+  border: 1px solid var(--border);
+}
+
+.glow-cyan {
+  box-shadow: 0 0 0 1px #22e8f599, 0 0 24px -6px #22e8f5;
+}
+.glow-fuchsia {
+  box-shadow: 0 0 0 1px #ef3fef99, 0 0 24px -6px #ef3fef;
+}
+.glow-lime {
+  box-shadow: 0 0 0 1px #c6ff3d99, 0 0 24px -6px #c6ff3d;
 }

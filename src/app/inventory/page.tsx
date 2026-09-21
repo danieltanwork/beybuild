@@ -41,29 +41,24 @@ export default async function InventoryPage() {
   return (
     <main className="flex flex-1 flex-col gap-4 px-5 pt-8">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-zinc-950 dark:text-zinc-50">
-          Inventory
-        </h1>
+        <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
         <Link
           href="/inventory/add"
-          className="rounded-full bg-zinc-950 px-4 py-2 text-sm font-semibold text-white dark:bg-zinc-50 dark:text-zinc-950"
+          className="glow-cyan rounded-full bg-gradient-to-r from-neon-cyan to-neon-violet px-4 py-2 text-sm font-bold text-background"
         >
           + Add box
         </Link>
       </div>
 
       {boxes.size === 0 && (
-        <p className="mt-10 text-center text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="mt-10 text-center text-sm text-muted-foreground">
           No boxes yet. Tap &ldquo;Add box&rdquo; to log your first Beyblade X set.
         </p>
       )}
 
       <div className="flex flex-col gap-3">
         {[...boxes.entries()].map(([boxKey, box]) => (
-          <div
-            key={boxKey}
-            className="rounded-2xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900"
-          >
+          <div key={boxKey} className="neon-card rounded-2xl p-4">
             <div className="mb-3 flex items-center gap-3">
               {box.boxPhotoFrontUrl || box.boxPhotoBackUrl ? (
                 <div className="flex gap-1">
@@ -72,7 +67,7 @@ export default async function InventoryPage() {
                     <img
                       src={box.boxPhotoFrontUrl}
                       alt={`${box.boxName ?? "Box"} front`}
-                      className="h-14 w-14 rounded-lg object-cover"
+                      className="h-14 w-14 rounded-lg border border-border object-cover"
                     />
                   )}
                   {box.boxPhotoBackUrl && (
@@ -80,28 +75,26 @@ export default async function InventoryPage() {
                     <img
                       src={box.boxPhotoBackUrl}
                       alt={`${box.boxName ?? "Box"} back`}
-                      className="h-14 w-14 rounded-lg object-cover"
+                      className="h-14 w-14 rounded-lg border border-border object-cover"
                     />
                   )}
                 </div>
               ) : (
-                <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-zinc-100 text-xl dark:bg-zinc-800">
+                <div className="flex h-14 w-14 items-center justify-center rounded-lg border border-border bg-background-elevated-2 text-xl">
                   📦
                 </div>
               )}
               <div className="flex-1">
-                <p className="font-semibold text-zinc-950 dark:text-zinc-50">
+                <p className="font-semibold text-foreground">
                   {box.boxName ?? "Unnamed box"}
                 </p>
                 {box.boxCode && (
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                    {box.boxCode}
-                  </p>
+                  <p className="text-xs text-neon-cyan">{box.boxCode}</p>
                 )}
               </div>
               <Link
                 href={`/inventory/${boxKey}/edit`}
-                className="rounded-full border border-zinc-200 px-3 py-1.5 text-xs font-medium text-zinc-700 dark:border-zinc-700 dark:text-zinc-300"
+                className="rounded-full border border-neon-lime/40 px-3 py-1.5 text-xs font-medium text-neon-lime"
               >
                 Edit
               </Link>
@@ -114,15 +107,15 @@ export default async function InventoryPage() {
                     <img
                       src={item.partPhotoUrl ?? part.imageUrl ?? undefined}
                       alt={part.name}
-                      className="aspect-square w-full rounded-lg object-cover"
+                      className="aspect-square w-full rounded-lg border border-border object-cover"
                     />
                   ) : (
-                    <div className="flex aspect-square w-full items-center justify-center rounded-lg bg-zinc-100 text-xs text-zinc-400 dark:bg-zinc-800">
+                    <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-border bg-background-elevated-2 text-xs text-muted-foreground">
                       No photo
                     </div>
                   )}
-                  <p className="text-center text-[11px] leading-tight text-zinc-600 dark:text-zinc-400">
-                    <span className="block text-[10px] uppercase tracking-wide text-zinc-400">
+                  <p className="text-center text-[11px] leading-tight text-muted-foreground">
+                    <span className="block text-[10px] uppercase tracking-wide text-neon-fuchsia">
                       {typeLabel[part.type]}
                     </span>
                     {part.name}
@@ -131,7 +124,7 @@ export default async function InventoryPage() {
                     <input type="hidden" name="id" value={item.id} />
                     <button
                       type="submit"
-                      className="text-[11px] text-red-500 hover:underline"
+                      className="text-[11px] text-neon-red hover:underline"
                     >
                       Remove
                     </button>

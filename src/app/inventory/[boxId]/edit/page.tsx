@@ -48,14 +48,12 @@ export default async function EditBoxPage({
   return (
     <main className="flex flex-1 flex-col gap-4 px-5 pt-8">
       <div className="flex items-center gap-2">
-        <Link href="/inventory" className="text-sm text-zinc-500">
+        <Link href="/inventory" className="text-sm text-neon-cyan">
           ← Inventory
         </Link>
       </div>
-      <h1 className="text-2xl font-bold text-zinc-950 dark:text-zinc-50">
-        Edit box
-      </h1>
-      <p className="text-sm text-zinc-500 dark:text-zinc-400">
+      <h1 className="text-2xl font-bold text-foreground">Edit box</h1>
+      <p className="text-sm text-muted-foreground">
         Update details, re-run photo analysis, or replace any photo below.
       </p>
       <AddBoxForm
