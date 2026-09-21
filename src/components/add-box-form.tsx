@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { PhotoCapture } from "@/components/photo-capture";
 import { addBoxToInventory, deleteBox, updateBoxInventory } from "@/app/inventory/actions";
@@ -24,16 +24,60 @@ const BIT_STAT_FIELDS: StatField[] = [
   { key: "burstResistance", label: "Burst" },
 ];
 
-function statsFromAnalysis(data: Record<string, unknown>, prefix: string, fields: StatField[]): Stats {
+type BeyState = {
+  bladeName: string;
+  ratchetName: string;
+  bitName: string;
+  bladeStats: Stats;
+  ratchetStats: Stats;
+  bitStats: Stats;
+  bladePhotoUrl: string | null;
+  ratchetPhotoUrl: string | null;
+  bitPhotoUrl: string | null;
+};
+
+function emptyBey(): BeyState {
+  return {
+    bladeName: "",
+    ratchetName: "",
+    bitName: "",
+    bladeStats: {},
+    ratchetStats: {},
+    bitStats: {},
+    bladePhotoUrl: null,
+    ratchetPhotoUrl: null,
+    bitPhotoUrl: null,
+  };
+}
+
+function statsFromAnalysisBey(bey: Record<string, unknown>, prefix: string, fields: StatField[]): Stats {
   const stats: Stats = {};
   for (const f of fields) {
-    const raw = data[`${prefix}${f.key[0].toUpperCase()}${f.key.slice(1)}`];
+    const raw = bey[`${prefix}${f.key[0].toUpperCase()}${f.key.slice(1)}`];
     stats[f.key] = typeof raw === "number" ? String(raw) : "";
   }
   return stats;
 }
 
-type PartInitial = { name: string; photoUrl: string | null; stats: Stats };
+type BeyInitial = {
+  blade: { name: string; photoUrl: string | null; stats: Stats };
+  ratchet: { name: string; photoUrl: string | null; stats: Stats };
+  bit: { name: string; photoUrl: string | null; stats: Stats };
+};
+
+function beyFromInitial(b: BeyInitial): BeyState {
+  return {
+    bladeName: b.blade.name,
+    ratchetName: b.ratchet.name,
+    bitName: b.bit.name,
+    bladeStats: b.blade.stats,
+    ratchetStats: b.ratchet.stats,
+    bitStats: b.bit.stats,
+    bladePhotoUrl: b.blade.photoUrl,
+    ratchetPhotoUrl: b.ratchet.photoUrl,
+    bitPhotoUrl: b.bit.photoUrl,
+  };
+}
 
 export function AddBoxForm({
   bladeOptions,
@@ -51,9 +95,7 @@ export function AddBoxForm({
     boxName: string;
     boxPhotoFrontUrl: string | null;
     boxPhotoBackUrl: string | null;
-    blade: PartInitial;
-    ratchet: PartInitial;
-    bit: PartInitial;
+    beys: BeyInitial[];
   };
 }) {
   const isEdit = !!boxId;
@@ -61,28 +103,15 @@ export function AddBoxForm({
 
   const [boxCode, setBoxCode] = useState(initial?.boxCode ?? "");
   const [boxName, setBoxName] = useState(initial?.boxName ?? "");
-  const [bladeName, setBladeName] = useState(initial?.blade.name ?? "");
-  const [ratchetName, setRatchetName] = useState(initial?.ratchet.name ?? "");
-  const [bitName, setBitName] = useState(initial?.bit.name ?? "");
-
-  const [bladeStats, setBladeStats] = useState<Stats>(initial?.blade.stats ?? {});
-  const [ratchetStats, setRatchetStats] = useState<Stats>(initial?.ratchet.stats ?? {});
-  const [bitStats, setBitStats] = useState<Stats>(initial?.bit.stats ?? {});
+  const [beys, setBeys] = useState<BeyState[]>(
+    initial?.beys.length ? initial.beys.map(beyFromInitial) : [emptyBey()],
+  );
 
   const [boxPhotoFrontUrl, setBoxPhotoFrontUrl] = useState<string | null>(
     initial?.boxPhotoFrontUrl ?? null,
   );
   const [boxPhotoBackUrl, setBoxPhotoBackUrl] = useState<string | null>(
     initial?.boxPhotoBackUrl ?? null,
-  );
-  const [bladePhotoUrl, setBladePhotoUrl] = useState<string | null>(
-    initial?.blade.photoUrl ?? null,
-  );
-  const [ratchetPhotoUrl, setRatchetPhotoUrl] = useState<string | null>(
-    initial?.ratchet.photoUrl ?? null,
-  );
-  const [bitPhotoUrl, setBitPhotoUrl] = useState<string | null>(
-    initial?.bit.photoUrl ?? null,
   );
 
   const [analyzeStatus, setAnalyzeStatus] = useState<
@@ -92,6 +121,16 @@ export function AddBoxForm({
 
   const [isPending, startTransition] = useTransition();
   const [isDeleting, startDeleteTransition] = useTransition();
+
+  function updateBey(index: number, patch: Partial<BeyState>) {
+    setBeys((prev) => prev.map((b, i) => (i === index ? { ...b, ...patch } : b)));
+  }
+
+  function updateBeyStat(index: number, group: "bladeStats" | "ratchetStats" | "bitStats", key: string, value: string) {
+    setBeys((prev) =>
+      prev.map((b, i) => (i === index ? { ...b, [group]: { ...b[group], [key]: value } } : b)),
+    );
+  }
 
   async function handleAnalyze() {
     const photoUrls = [boxPhotoFrontUrl, boxPhotoBackUrl].filter(
@@ -112,12 +151,23 @@ export function AddBoxForm({
 
       if (data.boxCode) setBoxCode(data.boxCode);
       if (data.boxName) setBoxName(data.boxName);
-      if (data.bladeName) setBladeName(data.bladeName);
-      if (data.ratchetName) setRatchetName(data.ratchetName);
-      if (data.bitName) setBitName(data.bitName);
-      setBladeStats(statsFromAnalysis(data, "blade", BLADE_STAT_FIELDS));
-      setRatchetStats(statsFromAnalysis(data, "ratchet", RATCHET_STAT_FIELDS));
-      setBitStats(statsFromAnalysis(data, "bit", BIT_STAT_FIELDS));
+
+      const analyzedBeys = Array.isArray(data.beys) ? data.beys : [];
+      if (analyzedBeys.length > 0) {
+        setBeys(
+          analyzedBeys.map((bey: Record<string, unknown>) => ({
+            bladeName: typeof bey.bladeName === "string" ? bey.bladeName : "",
+            ratchetName: typeof bey.ratchetName === "string" ? bey.ratchetName : "",
+            bitName: typeof bey.bitName === "string" ? bey.bitName : "",
+            bladeStats: statsFromAnalysisBey(bey, "blade", BLADE_STAT_FIELDS),
+            ratchetStats: statsFromAnalysisBey(bey, "ratchet", RATCHET_STAT_FIELDS),
+            bitStats: statsFromAnalysisBey(bey, "bit", BIT_STAT_FIELDS),
+            bladePhotoUrl: null,
+            ratchetPhotoUrl: null,
+            bitPhotoUrl: null,
+          })),
+        );
+      }
       setAnalyzeStatus("done");
     } catch (err) {
       setAnalyzeStatus("error");
@@ -132,22 +182,7 @@ export function AddBoxForm({
     fd.set("boxName", boxName);
     if (boxPhotoFrontUrl) fd.set("boxPhotoFrontUrl", boxPhotoFrontUrl);
     if (boxPhotoBackUrl) fd.set("boxPhotoBackUrl", boxPhotoBackUrl);
-    fd.set("bladeName", bladeName);
-    fd.set("ratchetName", ratchetName);
-    fd.set("bitName", bitName);
-    if (bladePhotoUrl) fd.set("bladePhotoUrl", bladePhotoUrl);
-    if (ratchetPhotoUrl) fd.set("ratchetPhotoUrl", ratchetPhotoUrl);
-    if (bitPhotoUrl) fd.set("bitPhotoUrl", bitPhotoUrl);
-
-    for (const [prefix, stats] of [
-      ["blade", bladeStats],
-      ["ratchet", ratchetStats],
-      ["bit", bitStats],
-    ] as const) {
-      for (const [key, value] of Object.entries(stats)) {
-        if (value !== "") fd.set(`${prefix}_${key}`, value);
-      }
-    }
+    fd.set("beysJson", JSON.stringify(beys));
 
     startTransition(() => {
       if (isEdit) {
@@ -167,6 +202,7 @@ export function AddBoxForm({
   }
 
   const canAnalyze = (boxPhotoFrontUrl || boxPhotoBackUrl) && analyzeStatus !== "analyzing";
+  const allValid = beys.every((b) => b.bladeName.trim() && b.ratchetName.trim() && b.bitName.trim());
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-6 pb-10">
@@ -197,6 +233,7 @@ export function AddBoxForm({
         {analyzeStatus === "done" && (
           <p className="text-xs text-neon-lime">
             Filled in what we could read below — double check before saving.
+            {beys.length > 1 && ` Found ${beys.length} beyblades in this box.`}
           </p>
         )}
         {analyzeStatus === "error" && (
@@ -220,7 +257,7 @@ export function AddBoxForm({
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-muted-foreground">Set name</span>
+          <span className="font-medium text-muted-foreground">Box title</span>
           <input
             value={boxName}
             onChange={(e) => setBoxName(e.target.value)}
@@ -230,43 +267,72 @@ export function AddBoxForm({
         </label>
       </div>
 
-      <PartField
-        label="Blade"
-        value={bladeName}
-        onChange={setBladeName}
-        options={bladeOptions}
-        onPhotoUploaded={setBladePhotoUrl}
-        initialPhotoUrl={initial?.blade.photoUrl}
-        statFields={BLADE_STAT_FIELDS}
-        stats={bladeStats}
-        onStatChange={(key, value) => setBladeStats((s) => ({ ...s, [key]: value }))}
-      />
-      <PartField
-        label="Ratchet"
-        value={ratchetName}
-        onChange={setRatchetName}
-        options={ratchetOptions}
-        onPhotoUploaded={setRatchetPhotoUrl}
-        initialPhotoUrl={initial?.ratchet.photoUrl}
-        statFields={RATCHET_STAT_FIELDS}
-        stats={ratchetStats}
-        onStatChange={(key, value) => setRatchetStats((s) => ({ ...s, [key]: value }))}
-      />
-      <PartField
-        label="Bit"
-        value={bitName}
-        onChange={setBitName}
-        options={bitOptions}
-        onPhotoUploaded={setBitPhotoUrl}
-        initialPhotoUrl={initial?.bit.photoUrl}
-        statFields={BIT_STAT_FIELDS}
-        stats={bitStats}
-        onStatChange={(key, value) => setBitStats((s) => ({ ...s, [key]: value }))}
-      />
+      {beys.map((bey, i) => (
+        <div key={i} className="flex flex-col gap-4">
+          {beys.length > 1 && (
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-neon-cyan">
+                Beyblade {i + 1}
+                {bey.bladeName && bey.ratchetName && bey.bitName
+                  ? ` — ${bey.bladeName} ${bey.ratchetName}${bey.bitName}`
+                  : ""}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setBeys((prev) => prev.filter((_, idx) => idx !== i))}
+                className="text-xs text-neon-red"
+              >
+                Remove
+              </button>
+            </div>
+          )}
+          <PartField
+            label="Blade"
+            value={bey.bladeName}
+            onChange={(v) => updateBey(i, { bladeName: v })}
+            options={bladeOptions}
+            onPhotoUploaded={(url) => updateBey(i, { bladePhotoUrl: url })}
+            initialPhotoUrl={bey.bladePhotoUrl}
+            statFields={BLADE_STAT_FIELDS}
+            stats={bey.bladeStats}
+            onStatChange={(key, value) => updateBeyStat(i, "bladeStats", key, value)}
+          />
+          <PartField
+            label="Ratchet"
+            value={bey.ratchetName}
+            onChange={(v) => updateBey(i, { ratchetName: v })}
+            options={ratchetOptions}
+            onPhotoUploaded={(url) => updateBey(i, { ratchetPhotoUrl: url })}
+            initialPhotoUrl={bey.ratchetPhotoUrl}
+            statFields={RATCHET_STAT_FIELDS}
+            stats={bey.ratchetStats}
+            onStatChange={(key, value) => updateBeyStat(i, "ratchetStats", key, value)}
+          />
+          <PartField
+            label="Bit"
+            value={bey.bitName}
+            onChange={(v) => updateBey(i, { bitName: v })}
+            options={bitOptions}
+            onPhotoUploaded={(url) => updateBey(i, { bitPhotoUrl: url })}
+            initialPhotoUrl={bey.bitPhotoUrl}
+            statFields={BIT_STAT_FIELDS}
+            stats={bey.bitStats}
+            onStatChange={(key, value) => updateBeyStat(i, "bitStats", key, value)}
+          />
+        </div>
+      ))}
+
+      <button
+        type="button"
+        onClick={() => setBeys((prev) => [...prev, emptyBey()])}
+        className="rounded-2xl border border-dashed border-neon-cyan/40 px-5 py-3 text-center text-sm font-semibold text-neon-cyan"
+      >
+        + Add another beyblade in this box
+      </button>
 
       <button
         type="submit"
-        disabled={isPending || !bladeName || !ratchetName || !bitName}
+        disabled={isPending || !allValid}
         className="glow-cyan rounded-2xl bg-gradient-to-r from-neon-cyan to-neon-violet px-5 py-4 text-center text-base font-bold text-background disabled:opacity-40"
       >
         {isPending ? "Saving…" : isEdit ? "Save changes" : "Save to inventory"}
@@ -316,7 +382,8 @@ function PartField({
   stats: Stats;
   onStatChange: (key: string, value: string) => void;
 }) {
-  const listId = `${label.toLowerCase()}-options`;
+  const uid = useId();
+  const listId = `${label.toLowerCase()}-options-${uid}`;
   return (
     <div className="neon-card flex flex-col gap-3 rounded-2xl p-4">
       <label className="flex flex-col gap-1 text-sm">

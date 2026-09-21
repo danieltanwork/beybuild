@@ -18,12 +18,25 @@ type PartStats = Partial<{
   burstResistance: number;
 }>;
 
-function readStats(formData: FormData, prefix: string): PartStats {
+type BeyFormEntry = {
+  bladeName: string;
+  ratchetName: string;
+  bitName: string;
+  bladePhotoUrl: string | null;
+  ratchetPhotoUrl: string | null;
+  bitPhotoUrl: string | null;
+  bladeStats: Record<string, string>;
+  ratchetStats: Record<string, string>;
+  bitStats: Record<string, string>;
+};
+
+function toStats(raw: Record<string, string> | undefined): PartStats {
   const stats: PartStats = {};
+  if (!raw) return stats;
   for (const key of ["attack", "defense", "stamina", "height", "dash", "burstResistance"] as const) {
-    const raw = formData.get(`${prefix}_${key}`);
-    if (raw && typeof raw === "string" && raw.trim() !== "") {
-      const n = Number(raw);
+    const value = raw[key];
+    if (typeof value === "string" && value.trim() !== "") {
+      const n = Number(value);
       if (Number.isFinite(n)) stats[key] = n;
     }
   }
@@ -65,33 +78,57 @@ async function resolveBoxForm(formData: FormData) {
   const boxPhotoFrontUrl = (formData.get("boxPhotoFrontUrl") as string) || null;
   const boxPhotoBackUrl = (formData.get("boxPhotoBackUrl") as string) || null;
 
-  const bladeName = formData.get("bladeName") as string;
-  const ratchetName = formData.get("ratchetName") as string;
-  const bitName = formData.get("bitName") as string;
-
-  const bladePhotoUrl = (formData.get("bladePhotoUrl") as string) || null;
-  const ratchetPhotoUrl = (formData.get("ratchetPhotoUrl") as string) || null;
-  const bitPhotoUrl = (formData.get("bitPhotoUrl") as string) || null;
-
-  if (!bladeName || !ratchetName || !bitName) {
-    throw new Error("Blade, ratchet, and bit names are required");
+  let beysRaw: BeyFormEntry[];
+  try {
+    beysRaw = JSON.parse((formData.get("beysJson") as string) || "[]");
+  } catch {
+    throw new Error("Malformed bey data");
   }
 
-  const [bladeId, ratchetId, bitId] = await Promise.all([
-    findOrCreatePart("blade", bladeName, bladePhotoUrl, readStats(formData, "blade")),
-    findOrCreatePart("ratchet", ratchetName, ratchetPhotoUrl, readStats(formData, "ratchet")),
-    findOrCreatePart("bit", bitName, bitPhotoUrl, readStats(formData, "bit")),
-  ]);
+  if (!Array.isArray(beysRaw) || beysRaw.length === 0) {
+    throw new Error("Add at least one beyblade (blade, ratchet, and bit)");
+  }
+  for (const b of beysRaw) {
+    if (!b.bladeName?.trim() || !b.ratchetName?.trim() || !b.bitName?.trim()) {
+      throw new Error("Every beyblade needs a blade, ratchet, and bit name");
+    }
+  }
 
-  return {
-    boxCode,
-    boxName,
-    boxPhotoFrontUrl,
-    boxPhotoBackUrl,
-    blade: { partId: bladeId, photoUrl: bladePhotoUrl },
-    ratchet: { partId: ratchetId, photoUrl: ratchetPhotoUrl },
-    bit: { partId: bitId, photoUrl: bitPhotoUrl },
-  };
+  const beys = await Promise.all(
+    beysRaw.map(async (b) => {
+      const [bladeId, ratchetId, bitId] = await Promise.all([
+        findOrCreatePart("blade", b.bladeName, b.bladePhotoUrl, toStats(b.bladeStats)),
+        findOrCreatePart("ratchet", b.ratchetName, b.ratchetPhotoUrl, toStats(b.ratchetStats)),
+        findOrCreatePart("bit", b.bitName, b.bitPhotoUrl, toStats(b.bitStats)),
+      ]);
+      return {
+        blade: { partId: bladeId, photoUrl: b.bladePhotoUrl },
+        ratchet: { partId: ratchetId, photoUrl: b.ratchetPhotoUrl },
+        bit: { partId: bitId, photoUrl: b.bitPhotoUrl },
+      };
+    }),
+  );
+
+  return { boxCode, boxName, boxPhotoFrontUrl, boxPhotoBackUrl, beys };
+}
+
+function toInventoryRows(
+  userId: string,
+  boxId: string,
+  resolved: Awaited<ReturnType<typeof resolveBoxForm>>,
+) {
+  return resolved.beys.flatMap((bey) =>
+    (["blade", "ratchet", "bit"] as const).map((type) => ({
+      userId,
+      partId: bey[type].partId,
+      boxId,
+      boxCode: resolved.boxCode,
+      boxName: resolved.boxName,
+      boxPhotoFrontUrl: resolved.boxPhotoFrontUrl,
+      boxPhotoBackUrl: resolved.boxPhotoBackUrl,
+      partPhotoUrl: bey[type].photoUrl,
+    })),
+  );
 }
 
 export async function addBoxToInventory(formData: FormData) {
@@ -99,18 +136,7 @@ export async function addBoxToInventory(formData: FormData) {
   const resolved = await resolveBoxForm(formData);
   const boxId = randomUUID();
 
-  await db.insert(inventory).values(
-    ([resolved.blade, resolved.ratchet, resolved.bit] as const).map((r) => ({
-      userId: user.id,
-      partId: r.partId,
-      boxId,
-      boxCode: resolved.boxCode,
-      boxName: resolved.boxName,
-      boxPhotoFrontUrl: resolved.boxPhotoFrontUrl,
-      boxPhotoBackUrl: resolved.boxPhotoBackUrl,
-      partPhotoUrl: r.photoUrl,
-    })),
-  );
+  await db.insert(inventory).values(toInventoryRows(user.id, boxId, resolved));
 
   revalidatePath("/inventory");
   redirect("/inventory");
@@ -120,32 +146,23 @@ export async function updateBoxInventory(boxId: string, formData: FormData) {
   const user = await stackServerApp.getUser({ or: "redirect" });
   const resolved = await resolveBoxForm(formData);
 
-  const existingRows = await db
-    .select({ id: inventory.id, type: parts.type })
+  const existing = await db
+    .select({ id: inventory.id })
     .from(inventory)
-    .innerJoin(parts, eq(inventory.partId, parts.id))
     .where(and(eq(inventory.boxId, boxId), eq(inventory.userId, user.id)));
 
-  if (existingRows.length === 0) {
+  if (existing.length === 0) {
     throw new Error("Box not found");
   }
 
-  await Promise.all(
-    existingRows.map((row) => {
-      const r = resolved[row.type as PartType];
-      return db
-        .update(inventory)
-        .set({
-          partId: r.partId,
-          boxCode: resolved.boxCode,
-          boxName: resolved.boxName,
-          boxPhotoFrontUrl: resolved.boxPhotoFrontUrl,
-          boxPhotoBackUrl: resolved.boxPhotoBackUrl,
-          partPhotoUrl: r.photoUrl,
-        })
-        .where(eq(inventory.id, row.id));
-    }),
-  );
+  // Replace all of this box's rows rather than trying to match old rows to
+  // the new bey list — the bey count itself can change on edit (e.g. someone
+  // fixes a box that was logged as a single bey but is actually a deck set).
+  await db
+    .delete(inventory)
+    .where(and(eq(inventory.boxId, boxId), eq(inventory.userId, user.id)));
+
+  await db.insert(inventory).values(toInventoryRows(user.id, boxId, resolved));
 
   revalidatePath("/inventory");
   redirect("/inventory");

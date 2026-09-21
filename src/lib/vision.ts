@@ -11,9 +11,8 @@ const model = process.env.VISION_MODEL || "claude-sonnet-5";
 
 const nullableInt = z.number().int().nullable();
 
-const boxAnalysisSchema = z.object({
-  boxCode: z.string().nullable(),
-  boxName: z.string().nullable(),
+const beySchema = z.object({
+  name: z.string().nullable(),
   bladeName: z.string().nullable(),
   ratchetName: z.string().nullable(),
   bitName: z.string().nullable(),
@@ -31,76 +30,104 @@ const boxAnalysisSchema = z.object({
   bitBurstResistance: nullableInt,
 });
 
+const boxAnalysisSchema = z.object({
+  boxCode: z.string().nullable(),
+  boxName: z.string().nullable(),
+  beys: z.array(beySchema),
+});
+
+export type BeyAnalysis = z.infer<typeof beySchema>;
 export type BoxAnalysis = z.infer<typeof boxAnalysisSchema>;
 
-const PROMPT = `You are looking at photos of a Beyblade X toy box (front and/or back, possibly a Japanese-market box with Japanese text elsewhere on it). Beyblade X sets are identified by a short product code like "BX-23", "UX-14", or "CX-05", and a set name that encodes three parts, printed together as one string, e.g. "Phoenix Wing 9-60GF" or "Scorpiospear 0-70Z" = Blade name + Ratchet code ("9-60", "0-70" — a short number, a dash, then a 2-digit number) + Bit code ("GF", "Z" — 1-3 letters).
+const PROMPT = `You are looking at photos of a Beyblade X toy box (front and/or back, possibly a Japanese-market box with Japanese text elsewhere on it).
 
-The single most reliable source for the name/code is usually a colored banner (often near the bottom of the front of the box) printed in plain Latin characters with the product code and the full set name together, even on an otherwise Japanese box — prefer that over piecing together fragments from elsewhere, and prefer it over any Japanese/katakana text. Ratchet codes are small print and easy to misread a digit in — look carefully and don't duplicate a digit (e.g. "0-70" is not "70-70").
+Some boxes ("Starter" or "Booster" sets) contain ONE beyblade. Others ("Deck Sets") contain THREE complete beyblades, each with its own name and its own stats block — look for three separate bey renders on the front and three separate named stat sections on the back (e.g. "SHARKSCALE 4-50UF", "TYRANNOROAR 1-70L", "HELLSBRAVE J3-60GF") before assuming there's only one. Return one entry in the "beys" array per beyblade actually in the box, in the order they're printed — most boxes need exactly one entry, deck sets need three.
 
-The back of the box usually has a printed stats table with three separate blocks stacked vertically, one per part in this order: Blade, then Ratchet, then Bit. Each block shows its own numeric bars, often in Japanese: 攻撃 = Attack, 防御 = Defense, 持久 = Stamina, 高さ = Height (ratchet block only), ダッシュ = Dash (bit block only), バースト耐性 = Burst Resistance (bit block only). If the blade has a "Dash Change" gimmick showing two numbers joined by an arrow (e.g. "25→55"), record only the first/base number, not the second.
+Beyblade X sets are identified by a short overall product code like "BX-23", "UX-14", or "UX-15", printed once for the whole box — put that in boxCode, and the box's own title (e.g. "Sharkscale Deck Set", or for a single-bey box just its bey name) in boxName.
 
-Each block's numbers belong ONLY to that block — never reuse or copy a number from one block into another. Before calling the tool, first write out in plain text exactly what you see in each of the three blocks, one line per block, listing every label and its number in the order they're printed (e.g. "Blade: Attack 25, Defense 55, Stamina 30" / "Ratchet: Attack 3, Defense 13, Stamina 14, Height 70" / "Bit: Attack 30, Defense 20, Stamina 15, Dash 35, Burst Resistance 80"). Then call extract_box_info using exactly those transcribed values — do not let numbers drift between blocks.
+Each beyblade's own name is one printed string that encodes three parts, e.g. "Phoenix Wing 9-60GF" or "Scorpiospear 0-70Z" = Blade name + Ratchet code ("9-60", "0-70" — an optional letter, a short number, a dash, then a 2-digit number; some CX-line ratchets have that letter prefix, e.g. "J3-60") + Bit code ("GF", "Z" — 1-3 letters). Put the full string in that bey's "name" field; you don't need to split it into bladeName/ratchetName/bitName yourself unless the split isn't obvious — but if you can read them as separate clean tokens, fill those in too. The single most reliable source for these names is usually a colored banner in plain Latin characters, even on an otherwise Japanese box — prefer that over piecing together fragments elsewhere, and prefer it over Japanese/katakana text. Ratchet codes are small print and easy to misread a digit in — look carefully and don't duplicate a digit (e.g. "0-70" is not "70-70").
+
+The back of the box has a printed stats table with a separate block per part per beyblade (Blade, then Ratchet, then Bit — repeated for each beyblade in the box), each showing numeric bars, often in Japanese: 攻撃 = Attack, 防御 = Defense, 持久 = Stamina, 高さ = Height (ratchet block only), ダッシュ = Dash (bit block only), バースト耐性 = Burst Resistance (bit block only). If a blade has a "Dash Change" gimmick showing two numbers joined by an arrow (e.g. "25→55"), record only the first/base number, not the second.
+
+Each block's numbers belong ONLY to that block, for that specific beyblade — never reuse or copy a number from one block into another, and never mix up which beyblade a block belongs to. Before calling the tool, first write out in plain text exactly what you see in each block, one line per block, labeled with which beyblade it belongs to (e.g. "Sharkscale Blade: Attack 12, Defense 13, Stamina 5" / "Sharkscale Ratchet: Attack 55, Defense 5, Stamina 5, Height 50" / "Sharkscale Bit: ..." then the same for the next beyblade). Then call extract_box_info using exactly those transcribed values — do not let numbers drift between blocks or between beyblades.
 
 Read the box and record what you can actually see. Only fill in a field if you can read it in the photo(s) — never guess or invent a plausible-sounding value; leave it null instead.`;
 
+const BEY_ITEM_SCHEMA = {
+  type: "object",
+  properties: {
+    name: {
+      type: ["string", "null"],
+      description: 'This beyblade\'s full name as printed, e.g. "Sharkscale 4-50UF". Null if not visible.',
+    },
+    bladeName: {
+      type: ["string", "null"],
+      description: 'Just the blade\'s name, e.g. "Sharkscale". Null if you can\'t confidently split it out.',
+    },
+    ratchetName: {
+      type: ["string", "null"],
+      description: 'Just the ratchet\'s code, e.g. "4-50". Null if you can\'t confidently split it out.',
+    },
+    bitName: {
+      type: ["string", "null"],
+      description: 'Just the bit\'s code, e.g. "UF". Null if you can\'t confidently split it out.',
+    },
+    bladeAttack: { type: ["integer", "null"], description: "This beyblade's blade printed Attack stat." },
+    bladeDefense: { type: ["integer", "null"], description: "This beyblade's blade printed Defense stat." },
+    bladeStamina: { type: ["integer", "null"], description: "This beyblade's blade printed Stamina stat." },
+    ratchetAttack: { type: ["integer", "null"], description: "This beyblade's ratchet printed Attack stat." },
+    ratchetDefense: { type: ["integer", "null"], description: "This beyblade's ratchet printed Defense stat." },
+    ratchetStamina: { type: ["integer", "null"], description: "This beyblade's ratchet printed Stamina stat." },
+    ratchetHeight: { type: ["integer", "null"], description: "This beyblade's ratchet printed Height stat." },
+    bitAttack: { type: ["integer", "null"], description: "This beyblade's bit printed Attack stat." },
+    bitDefense: { type: ["integer", "null"], description: "This beyblade's bit printed Defense stat." },
+    bitStamina: { type: ["integer", "null"], description: "This beyblade's bit printed Stamina stat." },
+    bitDash: { type: ["integer", "null"], description: "This beyblade's bit printed Dash stat." },
+    bitBurstResistance: { type: ["integer", "null"], description: "This beyblade's bit printed Burst Resistance stat." },
+  },
+  required: [
+    "name", "bladeName", "ratchetName", "bitName",
+    "bladeAttack", "bladeDefense", "bladeStamina",
+    "ratchetAttack", "ratchetDefense", "ratchetStamina", "ratchetHeight",
+    "bitAttack", "bitDefense", "bitStamina", "bitDash", "bitBurstResistance",
+  ],
+} as const;
+
 const EXTRACT_TOOL: Anthropic.Tool = {
   name: "extract_box_info",
-  description: "Record the product code, set name, part names, and stat numbers read from the box photos.",
+  description: "Record the overall product code/box title, and one entry per beyblade actually contained in the box (usually 1, sometimes 3 for a Deck Set).",
   input_schema: {
     type: "object",
     properties: {
       boxCode: {
         type: ["string", "null"],
-        description: 'The product code, e.g. "UX-14". Null if not visible.',
+        description: 'The overall product code, e.g. "UX-15". Null if not visible.',
       },
       boxName: {
         type: ["string", "null"],
-        description: 'The full set name as printed in Latin characters, e.g. "Scorpiospear 0-70Z". Null if not visible.',
+        description: 'The box\'s own title, e.g. "Sharkscale Deck Set", or the single bey\'s name for a one-bey box. Null if not visible.',
       },
-      bladeName: {
-        type: ["string", "null"],
-        description: 'Just the blade\'s name, e.g. "Scorpiospear". Null if unreadable.',
+      beys: {
+        type: "array",
+        description: "One entry per beyblade actually in the box — one for a Starter/Booster, three for a Deck Set.",
+        items: BEY_ITEM_SCHEMA,
       },
-      ratchetName: {
-        type: ["string", "null"],
-        description: 'Just the ratchet\'s code, e.g. "0-70". Null if unreadable.',
-      },
-      bitName: {
-        type: ["string", "null"],
-        description: 'Just the bit\'s code, e.g. "Z". Null if unreadable.',
-      },
-      bladeAttack: { type: ["integer", "null"], description: "Blade's printed Attack stat. Null if not visible." },
-      bladeDefense: { type: ["integer", "null"], description: "Blade's printed Defense stat. Null if not visible." },
-      bladeStamina: { type: ["integer", "null"], description: "Blade's printed Stamina stat. Null if not visible." },
-      ratchetAttack: { type: ["integer", "null"], description: "Ratchet's printed Attack stat. Null if not visible." },
-      ratchetDefense: { type: ["integer", "null"], description: "Ratchet's printed Defense stat. Null if not visible." },
-      ratchetStamina: { type: ["integer", "null"], description: "Ratchet's printed Stamina stat. Null if not visible." },
-      ratchetHeight: { type: ["integer", "null"], description: "Ratchet's printed Height stat. Null if not visible." },
-      bitAttack: { type: ["integer", "null"], description: "Bit's printed Attack stat. Null if not visible." },
-      bitDefense: { type: ["integer", "null"], description: "Bit's printed Defense stat. Null if not visible." },
-      bitStamina: { type: ["integer", "null"], description: "Bit's printed Stamina stat. Null if not visible." },
-      bitDash: { type: ["integer", "null"], description: "Bit's printed Dash stat. Null if not visible." },
-      bitBurstResistance: { type: ["integer", "null"], description: "Bit's printed Burst Resistance stat. Null if not visible." },
     },
-    required: [
-      "boxCode", "boxName", "bladeName", "ratchetName", "bitName",
-      "bladeAttack", "bladeDefense", "bladeStamina",
-      "ratchetAttack", "ratchetDefense", "ratchetStamina", "ratchetHeight",
-      "bitAttack", "bitDefense", "bitStamina", "bitDash", "bitBurstResistance",
-    ],
+    required: ["boxCode", "boxName", "beys"],
   },
 };
 
-// A Beyblade X set name is one printed string that encodes all three parts,
+// A Beyblade X bey name is one printed string that encodes all three parts,
 // e.g. "Scorpiospear 0-70Z" -> Blade "Scorpiospear" + Ratchet "0-70" + Bit "Z".
-// Reading that single string once and splitting it here is more reliable than
-// asking the model to separately re-read the same three fields from smaller,
-// easier-to-misread fragments elsewhere on the box.
-const BOX_NAME_PATTERN = /^(.+?)\s+(\d{1,2}-\d{2})([A-Za-z]{1,3})$/;
+// Some CX-line ratchets have a letter prefix, e.g. "Hellsbrave J3-60GF" ->
+// Ratchet "J3-60". Reading that single string once and splitting it here is
+// more reliable than asking the model to separately re-read the same three
+// fields from smaller, easier-to-misread fragments elsewhere on the box.
+const BEY_NAME_PATTERN = /^(.+?)\s+([A-Za-z]?\d{1,2}-\d{2})([A-Za-z]{1,3})$/;
 
-function deriveFromBoxName(boxName: string | null) {
-  if (!boxName) return null;
-  const match = boxName.trim().match(BOX_NAME_PATTERN);
+function deriveFromBeyName(name: string | null) {
+  if (!name) return null;
+  const match = name.trim().match(BEY_NAME_PATTERN);
   if (!match) return null;
   return {
     bladeName: match[1].trim(),
@@ -114,7 +141,7 @@ export async function analyzeBoxPhotos(
 ): Promise<BoxAnalysis> {
   const response = await anthropic.messages.create({
     model,
-    max_tokens: 1500,
+    max_tokens: 3000,
     tools: [EXTRACT_TOOL],
     tool_choice: { type: "any" },
     messages: [
@@ -139,8 +166,10 @@ export async function analyzeBoxPhotos(
   const parsed = boxAnalysisSchema.safeParse(toolUse.input);
   if (!parsed.success) throw new Error("Vision model returned unexpected shape");
 
-  const derived = deriveFromBoxName(parsed.data.boxName);
-  if (derived) return { ...parsed.data, ...derived };
+  const beys = parsed.data.beys.map((bey) => {
+    const derived = deriveFromBeyName(bey.name);
+    return derived ? { ...bey, ...derived } : bey;
+  });
 
-  return parsed.data;
+  return { ...parsed.data, beys };
 }

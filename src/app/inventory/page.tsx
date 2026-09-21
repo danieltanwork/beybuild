@@ -99,39 +99,48 @@ export default async function InventoryPage() {
                 Edit
               </Link>
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              {box.items.map(({ inventory: item, part }) => (
-                <div key={item.id} className="flex flex-col items-center gap-1">
-                  {item.partPhotoUrl || part.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={item.partPhotoUrl ?? part.imageUrl ?? undefined}
-                      alt={part.name}
-                      className="aspect-square w-full rounded-lg border border-border object-cover"
-                    />
-                  ) : (
-                    <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-border bg-background-elevated-2 text-xs text-muted-foreground">
-                      No photo
-                    </div>
-                  )}
-                  <p className="text-center text-[11px] leading-tight text-muted-foreground">
-                    <span className="block text-[10px] uppercase tracking-wide text-neon-fuchsia">
-                      {typeLabel[part.type]}
-                    </span>
-                    {part.name}
+            {(["blade", "ratchet", "bit"] as const).map((type) => {
+              const items = box.items.filter((it) => it.part.type === type);
+              if (items.length === 0) return null;
+              return (
+                <div key={type} className="mb-2 last:mb-0">
+                  <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-neon-fuchsia">
+                    {typeLabel[type]}
+                    {items.length > 1 ? ` (${items.length})` : ""}
                   </p>
-                  <form action={deleteInventoryItem}>
-                    <input type="hidden" name="id" value={item.id} />
-                    <button
-                      type="submit"
-                      className="text-[11px] text-neon-red hover:underline"
-                    >
-                      Remove
-                    </button>
-                  </form>
+                  <div className="flex gap-2 overflow-x-auto pb-1">
+                    {items.map(({ inventory: item, part }) => (
+                      <div key={item.id} className="flex w-20 shrink-0 flex-col items-center gap-1">
+                        {item.partPhotoUrl || part.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={item.partPhotoUrl ?? part.imageUrl ?? undefined}
+                            alt={part.name}
+                            className="aspect-square w-full rounded-lg border border-border object-cover"
+                          />
+                        ) : (
+                          <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-border bg-background-elevated-2 text-xs text-muted-foreground">
+                            No photo
+                          </div>
+                        )}
+                        <p className="line-clamp-2 text-center text-[11px] leading-tight text-muted-foreground">
+                          {part.name}
+                        </p>
+                        <form action={deleteInventoryItem}>
+                          <input type="hidden" name="id" value={item.id} />
+                          <button
+                            type="submit"
+                            className="text-[11px] text-neon-red hover:underline"
+                          >
+                            Remove
+                          </button>
+                        </form>
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              ))}
-            </div>
+              );
+            })}
           </div>
         ))}
       </div>

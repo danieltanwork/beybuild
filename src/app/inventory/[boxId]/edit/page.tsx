@@ -37,11 +37,39 @@ export default async function EditBoxPage({
 
   if (rows.length === 0) redirect("/inventory");
 
-  const bladeRow = rows.find((r) => r.part.type === "blade");
-  const ratchetRow = rows.find((r) => r.part.type === "ratchet");
-  const bitRow = rows.find((r) => r.part.type === "bit");
+  const bladeRows = rows.filter((r) => r.part.type === "blade");
+  const ratchetRows = rows.filter((r) => r.part.type === "ratchet");
+  const bitRows = rows.filter((r) => r.part.type === "bit");
 
-  if (!bladeRow || !ratchetRow || !bitRow) redirect("/inventory");
+  // A box normally has one blade/ratchet/bit per beyblade it contains (1 for
+  // a Starter, 3 for a Deck Set) — pair them up positionally. If the counts
+  // don't match (parts removed individually), a group just gets a blank slot
+  // for whichever part is missing rather than losing the others.
+  const beyCount = Math.max(bladeRows.length, ratchetRows.length, bitRows.length, 1);
+  const blank = { name: "", photoUrl: null as string | null, stats: {} as Record<string, string> };
+  const beys = Array.from({ length: beyCount }, (_, i) => ({
+    blade: bladeRows[i]
+      ? {
+          name: bladeRows[i].part.name,
+          photoUrl: bladeRows[i].inventory.partPhotoUrl,
+          stats: statsFor(bladeRows[i].part, "blade"),
+        }
+      : blank,
+    ratchet: ratchetRows[i]
+      ? {
+          name: ratchetRows[i].part.name,
+          photoUrl: ratchetRows[i].inventory.partPhotoUrl,
+          stats: statsFor(ratchetRows[i].part, "ratchet"),
+        }
+      : blank,
+    bit: bitRows[i]
+      ? {
+          name: bitRows[i].part.name,
+          photoUrl: bitRows[i].inventory.partPhotoUrl,
+          stats: statsFor(bitRows[i].part, "bit"),
+        }
+      : blank,
+  }));
 
   const first = rows[0].inventory;
 
@@ -66,21 +94,7 @@ export default async function EditBoxPage({
           boxName: first.boxName ?? "",
           boxPhotoFrontUrl: first.boxPhotoFrontUrl,
           boxPhotoBackUrl: first.boxPhotoBackUrl,
-          blade: {
-            name: bladeRow.part.name,
-            photoUrl: bladeRow.inventory.partPhotoUrl,
-            stats: statsFor(bladeRow.part, "blade"),
-          },
-          ratchet: {
-            name: ratchetRow.part.name,
-            photoUrl: ratchetRow.inventory.partPhotoUrl,
-            stats: statsFor(ratchetRow.part, "ratchet"),
-          },
-          bit: {
-            name: bitRow.part.name,
-            photoUrl: bitRow.inventory.partPhotoUrl,
-            stats: statsFor(bitRow.part, "bit"),
-          },
+          beys,
         }}
       />
     </main>
