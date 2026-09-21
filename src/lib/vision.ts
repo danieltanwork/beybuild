@@ -1,13 +1,10 @@
 import "server-only";
-import OpenAI from "openai";
+import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 
-const client = new OpenAI({
-  baseURL: `${process.env.NEON_AI_GATEWAY_BASE_URL}/v1`,
-  apiKey: process.env.NEON_AI_GATEWAY_TOKEN,
-});
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
-const model = process.env.VISION_MODEL || "anthropic/claude-sonnet-4-5";
+const model = process.env.VISION_MODEL || "claude-haiku-4-5-20251001";
 
 const boxAnalysisSchema = z.object({
   boxCode: z.string().nullable(),
@@ -21,22 +18,47 @@ export type BoxAnalysis = z.infer<typeof boxAnalysisSchema>;
 
 const PROMPT = `You are looking at photos of a Beyblade X toy box (front and/or back). Beyblade X sets are identified by a short product code like "BX-23", "UX-08", or "CX-05", and a set name that encodes three parts, e.g. "Phoenix Wing 9-60GF" = Blade "Phoenix Wing" + Ratchet "9-60" + Bit "GF".
 
-Read the box and extract:
-- boxCode: the product code (e.g. "BX-23"), or null if not visible
-- boxName: the full set name as printed (e.g. "Phoenix Wing 9-60GF"), or null if not visible
-- bladeName: just the blade's name (e.g. "Phoenix Wing"), or null if you can't determine it
-- ratchetName: just the ratchet's code (e.g. "9-60"), or null if you can't determine it
-- bitName: just the bit's code (e.g. "GF"), or null if you can't determine it
+Read the box and record what you can actually see. Only fill in a field if you can read it in the photo(s) — never guess or invent a plausible-sounding value; leave it null instead.`;
 
-Only fill in a field if you can actually read it in the photo(s) — never guess or invent a plausible-sounding value. Respond with ONLY a JSON object with exactly these five keys, no other text.`;
+const EXTRACT_TOOL: Anthropic.Tool = {
+  name: "extract_box_info",
+  description: "Record the product code, set name, and individual part names read from the box photos.",
+  input_schema: {
+    type: "object",
+    properties: {
+      boxCode: {
+        type: ["string", "null"],
+        description: 'The product code, e.g. "BX-23". Null if not visible.',
+      },
+      boxName: {
+        type: ["string", "null"],
+        description: 'The full set name as printed, e.g. "Phoenix Wing 9-60GF". Null if not visible.',
+      },
+      bladeName: {
+        type: ["string", "null"],
+        description: 'Just the blade\'s name, e.g. "Phoenix Wing". Null if unreadable.',
+      },
+      ratchetName: {
+        type: ["string", "null"],
+        description: 'Just the ratchet\'s code, e.g. "9-60". Null if unreadable.',
+      },
+      bitName: {
+        type: ["string", "null"],
+        description: 'Just the bit\'s code, e.g. "GF". Null if unreadable.',
+      },
+    },
+    required: ["boxCode", "boxName", "bladeName", "ratchetName", "bitName"],
+  },
+};
 
 export async function analyzeBoxPhotos(
   photoUrls: string[],
 ): Promise<BoxAnalysis> {
-  const response = await client.chat.completions.create({
+  const response = await anthropic.messages.create({
     model,
-    response_format: { type: "json_object" },
     max_tokens: 500,
+    tools: [EXTRACT_TOOL],
+    tool_choice: { type: "tool", name: "extract_box_info" },
     messages: [
       {
         role: "user",
@@ -44,17 +66,19 @@ export async function analyzeBoxPhotos(
           { type: "text", text: PROMPT },
           ...photoUrls.map(
             (url) =>
-              ({ type: "image_url", image_url: { url } }) as const,
+              ({ type: "image", source: { type: "url", url } }) as const,
           ),
         ],
       },
     ],
   });
 
-  const raw = response.choices[0]?.message?.content;
-  if (!raw) throw new Error("No response from vision model");
+  const toolUse = response.content.find((block) => block.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") {
+    throw new Error("No structured response from vision model");
+  }
 
-  const parsed = boxAnalysisSchema.safeParse(JSON.parse(raw));
+  const parsed = boxAnalysisSchema.safeParse(toolUse.input);
   if (!parsed.success) throw new Error("Vision model returned unexpected shape");
 
   return parsed.data;
