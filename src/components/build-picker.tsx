@@ -11,7 +11,19 @@ type Part = {
   attack: number | null;
   defense: number | null;
   stamina: number | null;
+  height: number | null;
+  dash: number | null;
+  burstResistance: number | null;
 };
+
+const STAT_LABELS = {
+  attack: "ATK",
+  defense: "DEF",
+  stamina: "STA",
+  height: "Height",
+  dash: "Dash",
+  burstResistance: "Burst",
+} as const;
 
 export function BuildPicker({
   blades,
@@ -22,9 +34,11 @@ export function BuildPicker({
   ratchets: Part[];
   bits: Part[];
 }) {
-  const [bladeId, setBladeId] = useState<string | null>(null);
-  const [ratchetId, setRatchetId] = useState<string | null>(null);
-  const [bitId, setBitId] = useState<string | null>(null);
+  // Start with a real combo on screen (first owned part of each type)
+  // instead of an empty state the player has to fill in from scratch.
+  const [bladeId, setBladeId] = useState<string | null>(blades[0]?.id ?? null);
+  const [ratchetId, setRatchetId] = useState<string | null>(ratchets[0]?.id ?? null);
+  const [bitId, setBitId] = useState<string | null>(bits[0]?.id ?? null);
   const [name, setName] = useState("");
   const [isPending, startTransition] = useTransition();
 
@@ -39,10 +53,15 @@ export function BuildPicker({
 
   const totals = useMemo(() => {
     const parts = [selected.blade, selected.ratchet, selected.bit];
+    const sum = (key: keyof typeof STAT_LABELS) =>
+      parts.reduce((s, p) => s + (p?.[key] ?? 0), 0);
     return {
-      attack: parts.reduce((s, p) => s + (p?.attack ?? 0), 0),
-      defense: parts.reduce((s, p) => s + (p?.defense ?? 0), 0),
-      stamina: parts.reduce((s, p) => s + (p?.stamina ?? 0), 0),
+      attack: sum("attack"),
+      defense: sum("defense"),
+      stamina: sum("stamina"),
+      height: sum("height"),
+      dash: sum("dash"),
+      burstResistance: sum("burstResistance"),
     };
   }, [selected]);
 
@@ -72,16 +91,16 @@ export function BuildPicker({
       </div>
 
       {ready && (
-        <div className="grid grid-cols-3 gap-3 text-center text-sm">
-          <Stat label="Attack" value={totals.attack} />
-          <Stat label="Defense" value={totals.defense} />
-          <Stat label="Stamina" value={totals.stamina} />
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(STAT_LABELS) as (keyof typeof STAT_LABELS)[]).map((key) => (
+            <StatPill key={key} label={STAT_LABELS[key]} value={totals[key]} />
+          ))}
         </div>
       )}
 
-      <PartGrid title="Blade" parts={blades} selectedId={bladeId} onSelect={setBladeId} />
-      <PartGrid title="Ratchet" parts={ratchets} selectedId={ratchetId} onSelect={setRatchetId} />
-      <PartGrid title="Bit" parts={bits} selectedId={bitId} onSelect={setBitId} />
+      <PartCarousel title="Blade" parts={blades} selectedId={bladeId} onSelect={setBladeId} />
+      <PartCarousel title="Ratchet" parts={ratchets} selectedId={ratchetId} onSelect={setRatchetId} />
+      <PartCarousel title="Bit" parts={bits} selectedId={bitId} onSelect={setBitId} />
 
       {ready && (
         <div className="sticky bottom-16 flex gap-2 rounded-2xl border border-zinc-200 bg-white p-3 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
@@ -117,16 +136,20 @@ function PreviewSlot({ part, placeholder }: { part?: Part; placeholder: string }
   );
 }
 
-function Stat({ label, value }: { label: string; value: number }) {
+function StatPill({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl border border-zinc-200 py-2 dark:border-zinc-800">
-      <p className="text-lg font-bold text-zinc-950 dark:text-zinc-50">{value}</p>
-      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{label}</p>
+    <div className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-zinc-50 py-1.5 pl-3 pr-2.5 dark:border-zinc-800 dark:bg-zinc-900">
+      <span className="text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+        {label}
+      </span>
+      <span className="rounded-full bg-zinc-950 px-1.5 py-0.5 text-xs font-bold text-white dark:bg-zinc-50 dark:text-zinc-950">
+        {value}
+      </span>
     </div>
   );
 }
 
-function PartGrid({
+function PartCarousel({
   title,
   parts,
   selectedId,
@@ -137,6 +160,8 @@ function PartGrid({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
   if (parts.length === 0) {
     return (
       <div>
@@ -150,36 +175,110 @@ function PartGrid({
     );
   }
 
+  const index = Math.max(0, parts.findIndex((p) => p.id === selectedId));
+  const current = parts[index];
+
+  function step(delta: number) {
+    const next = (index + delta + parts.length) % parts.length;
+    onSelect(parts[next].id);
+  }
+
   return (
-    <div>
-      <h2 className="mb-2 text-sm font-semibold text-zinc-700 dark:text-zinc-300">
-        {title}
-      </h2>
-      <div className="flex gap-2 overflow-x-auto pb-1">
-        {parts.map((p) => (
+    <div className="rounded-2xl border border-zinc-200 p-4 dark:border-zinc-800">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="rounded-full bg-zinc-950 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-white dark:bg-zinc-50 dark:text-zinc-950">
+          {title}
+        </span>
+        {parts.length > 1 && (
           <button
-            key={p.id}
-            onClick={() => onSelect(p.id)}
-            className={`flex w-20 shrink-0 flex-col items-center gap-1 rounded-xl border-2 p-1.5 ${
-              selectedId === p.id
-                ? "border-zinc-950 dark:border-zinc-50"
-                : "border-transparent"
-            }`}
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="text-xs font-medium text-zinc-500 underline dark:text-zinc-400"
           >
-            <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800">
-              {p.imageUrl ? (
+            {expanded ? "Hide list" : `Browse all (${parts.length})`}
+          </button>
+        )}
+      </div>
+
+      {!expanded ? (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => step(-1)}
+            disabled={parts.length < 2}
+            aria-label={`Previous ${title.toLowerCase()}`}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200 text-lg text-zinc-500 disabled:opacity-30 dark:border-zinc-800 dark:text-zinc-400"
+          >
+            ‹
+          </button>
+
+          <div className="flex flex-1 flex-col items-center gap-2">
+            <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-2xl bg-zinc-100 dark:bg-zinc-800">
+              {current?.imageUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={p.imageUrl} alt={p.name} className="h-full w-full object-cover" />
+                <img
+                  src={current.imageUrl}
+                  alt={current.name}
+                  className="h-full w-full object-cover"
+                />
               ) : (
-                <span className="text-[10px] text-zinc-400">No photo</span>
+                <span className="text-xs text-zinc-400">No photo</span>
               )}
             </div>
-            <span className="line-clamp-2 text-center text-[11px] leading-tight text-zinc-700 dark:text-zinc-300">
-              {p.name}
-            </span>
+            <p className="text-center text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+              {current?.name}
+            </p>
+            {parts.length > 1 && (
+              <p className="text-[11px] text-zinc-400">
+                {index + 1} / {parts.length}
+              </p>
+            )}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => step(1)}
+            disabled={parts.length < 2}
+            aria-label={`Next ${title.toLowerCase()}`}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-zinc-200 text-lg text-zinc-500 disabled:opacity-30 dark:border-zinc-800 dark:text-zinc-400"
+          >
+            ›
           </button>
-        ))}
-      </div>
+        </div>
+      ) : (
+        <div className="flex gap-2 overflow-x-auto pb-1">
+          {parts.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => {
+                onSelect(p.id);
+                setExpanded(false);
+              }}
+              className={`flex w-20 shrink-0 flex-col items-center gap-1 rounded-xl border-2 p-1.5 ${
+                selectedId === p.id
+                  ? "border-zinc-950 dark:border-zinc-50"
+                  : "border-transparent"
+              }`}
+            >
+              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg bg-zinc-100 dark:bg-zinc-800">
+                {p.imageUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={p.imageUrl}
+                    alt={p.name}
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="text-[10px] text-zinc-400">No photo</span>
+                )}
+              </div>
+              <span className="line-clamp-2 text-center text-[11px] leading-tight text-zinc-700 dark:text-zinc-300">
+                {p.name}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
