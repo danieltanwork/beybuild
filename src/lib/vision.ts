@@ -311,9 +311,7 @@ async function cropPartImage(
   }
 }
 
-export async function analyzeBoxPhotos(
-  photoUrls: string[],
-): Promise<BoxAnalysis> {
+async function requestExtraction(photoUrls: string[]) {
   const response = await anthropic.messages.create({
     model,
     max_tokens: 4000,
@@ -334,17 +332,27 @@ export async function analyzeBoxPhotos(
   });
 
   const toolUse = response.content.find((block) => block.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    throw new Error("No structured response from vision model");
-  }
+  if (!toolUse || toolUse.type !== "tool_use") return null;
 
   const parsed = boxAnalysisSchema.safeParse(toolUse.input);
-  if (!parsed.success) throw new Error("Vision model returned unexpected shape");
+  return parsed.success ? parsed.data : null;
+}
+
+export async function analyzeBoxPhotos(
+  photoUrls: string[],
+): Promise<BoxAnalysis> {
+  // The model occasionally returns a tool call that doesn't match the
+  // schema (a missing field, wrong type) even though the same box photo
+  // parses fine most of the time — one retry clears up that flake without
+  // making the player re-take photos or fill everything in by hand.
+  let data = await requestExtraction(photoUrls);
+  if (!data) data = await requestExtraction(photoUrls);
+  if (!data) throw new Error("Couldn't read a valid response from the vision model — try again");
 
   const bufferCache = new Map<string, Buffer>();
 
   const beys: BeyAnalysis[] = await Promise.all(
-    parsed.data.beys.map(async (raw) => {
+    data.beys.map(async (raw) => {
       const { blade, ratchet, bit } = classifyBlocks(raw.blocks);
 
       let bladeName = raw.bladeName;
@@ -398,5 +406,5 @@ export async function analyzeBoxPhotos(
     }),
   );
 
-  return { boxCode: parsed.data.boxCode, boxName: parsed.data.boxName, beys };
+  return { boxCode: data.boxCode, boxName: data.boxName, beys };
 }
