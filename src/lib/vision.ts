@@ -11,7 +11,29 @@ const model = process.env.VISION_MODEL || "claude-sonnet-5";
 
 const nullableInt = z.number().int().nullable();
 
-const beySchema = z.object({
+// A raw bar-chart block as printed on the box, BEFORE we know which part
+// (blade/ratchet/bit) it belongs to. Asking the model to only transcribe
+// each block's own bars — rather than also reason about which named part it
+// belongs to — turned out to be far more reliable: in testing, the model's
+// raw number-reading was consistently accurate even in runs where it
+// mislabeled which part a block belonged to. So classification into
+// blade/ratchet/bit happens deterministically in code (see classifyBlocks),
+// purely from which stats a block contains — never from its position
+// relative to a label, which varies from box to box and isn't reliable.
+const blockSchema = z.object({
+  attack: nullableInt,
+  defense: nullableInt,
+  stamina: nullableInt,
+  height: nullableInt, // present only on a ratchet's block
+  dash: nullableInt, // present only on a bit's block
+  burstResistance: nullableInt, // present only on a bit's block
+  // Second (Low Mode) numbers, only on a mode-change blade's own block.
+  attackLow: nullableInt,
+  defenseLow: nullableInt,
+  staminaLow: nullableInt,
+});
+
+const rawBeySchema = z.object({
   name: z.string().nullable(),
   bladeName: z.string().nullable(),
   ratchetName: z.string().nullable(),
@@ -19,51 +41,82 @@ const beySchema = z.object({
   // True for a "ratchet-integrated blade" (e.g. Hellsnether) — blade and
   // ratchet are one fused part, so this bey has no separate ratchet.
   bladeIsIntegrated: z.boolean().nullable(),
-  bladeAttack: nullableInt,
-  bladeDefense: nullableInt,
-  bladeStamina: nullableInt,
-  // Only set for a ratchet-integrated blade with a mode-change gimmick that
-  // prints two stat profiles (Normal Mode above, Low Mode here).
-  bladeAttackLow: nullableInt,
-  bladeDefenseLow: nullableInt,
-  bladeStaminaLow: nullableInt,
-  ratchetAttack: nullableInt,
-  ratchetDefense: nullableInt,
-  ratchetStamina: nullableInt,
-  ratchetHeight: nullableInt,
-  bitAttack: nullableInt,
-  bitDefense: nullableInt,
-  bitStamina: nullableInt,
-  bitDash: nullableInt,
-  bitBurstResistance: nullableInt,
+  blocks: z.array(blockSchema),
 });
 
 const boxAnalysisSchema = z.object({
   boxCode: z.string().nullable(),
   boxName: z.string().nullable(),
-  beys: z.array(beySchema),
+  beys: z.array(rawBeySchema),
 });
 
-export type BeyAnalysis = z.infer<typeof beySchema>;
-export type BoxAnalysis = z.infer<typeof boxAnalysisSchema>;
+// Public, flat shape the rest of the app consumes (inventory actions, the
+// add-box form, the analyze-box API route) — unchanged by the internal
+// block-based extraction above.
+export type BeyAnalysis = {
+  name: string | null;
+  bladeName: string | null;
+  ratchetName: string | null;
+  bitName: string | null;
+  bladeIsIntegrated: boolean | null;
+  bladeAttack: number | null;
+  bladeDefense: number | null;
+  bladeStamina: number | null;
+  bladeAttackLow: number | null;
+  bladeDefenseLow: number | null;
+  bladeStaminaLow: number | null;
+  ratchetAttack: number | null;
+  ratchetDefense: number | null;
+  ratchetStamina: number | null;
+  ratchetHeight: number | null;
+  bitAttack: number | null;
+  bitDefense: number | null;
+  bitStamina: number | null;
+  bitDash: number | null;
+  bitBurstResistance: number | null;
+};
+
+export type BoxAnalysis = {
+  boxCode: string | null;
+  boxName: string | null;
+  beys: BeyAnalysis[];
+};
 
 const PROMPT = `You are looking at photos of a Beyblade X toy box (front and/or back, possibly a Japanese-market box with Japanese text elsewhere on it).
 
-Some boxes ("Starter" or "Booster" sets) contain ONE beyblade. Others ("Deck Sets") contain THREE complete beyblades, each with its own name and its own stats block — look for three separate bey renders on the front and three separate named stat sections on the back (e.g. "SHARKSCALE 4-50UF", "TYRANNOROAR 1-70L", "HELLSBRAVE J3-60GF") before assuming there's only one. Return one entry in the "beys" array per beyblade actually in the box, in the order they're printed — most boxes need exactly one entry, deck sets need three.
+Some boxes ("Starter" or "Booster" sets) contain ONE beyblade. Others ("Deck Sets") contain THREE complete beyblades, each with its own name and its own stats blocks — look for three separate bey renders on the front and three separate named stat sections on the back (e.g. "SHARKSCALE 4-50UF", "TYRANNOROAR 1-70L", "HELLSBRAVE J3-60GF") before assuming there's only one. Return one entry in the "beys" array per beyblade actually in the box, in the order they're printed — most boxes need exactly one entry, deck sets need three.
 
 Beyblade X sets are identified by a short overall product code like "BX-23", "UX-14", or "UX-15", printed once for the whole box — put that in boxCode, and the box's own title (e.g. "Sharkscale Deck Set", or for a single-bey box just its bey name) in boxName.
 
 Each beyblade's own name is normally one printed string that encodes three parts, e.g. "Phoenix Wing 9-60GF" or "Scorpiospear 0-70Z" = Blade name + Ratchet code (a short number, a dash, then a 2-digit number, e.g. "9-60", "0-70") + Bit code ("GF", "Z" — 1-3 letters). Some blade names end in their own letter, e.g. "Hellsbrave J" — that letter belongs to the BLADE, not the ratchet, even though it sits right before the ratchet number (so "Hellsbrave J3-60GF" is Blade "Hellsbrave J" + Ratchet "3-60" + Bit "GF"); don't assume a leading letter before a ratchet number is part of the ratchet code. Put the full string in that bey's "name" field. The back of the box usually prints each part's name separately and explicitly in its own labeled block (e.g. a Japanese box labels them ブレード/Blade, ラチェット/Ratchet, ビット/Bit) — always prefer reading bladeName/ratchetName/bitName directly from those labeled blocks over splitting the combined name string yourself, and fill in all three whenever you can read them. The single most reliable source for the combined "name" field is usually a colored banner in plain Latin characters, even on an otherwise Japanese box — prefer that over piecing together fragments elsewhere, and prefer it over Japanese/katakana text. Ratchet codes are small print and easy to misread a digit in — look carefully and don't duplicate a digit (e.g. "0-70" is not "70-70").
 
-Some blades are printed as "ラチェット一体型ブレード" ("ratchet-integrated blade") — the blade and ratchet are ONE fused physical part, so that bey has no separate ratchet at all. You'll see this from the part being labeled "ラチェット一体型ブレード/[name]" instead of a plain "ブレード/[name]", and the bey's printed name itself will have no ratchet-code segment (e.g. just "Hellsnether-Z" = Blade "Hellsnether" + Bit "Z", nothing in between). When you see this, set bladeIsIntegrated to true, put the blade's name in bladeName as usual, and leave ratchetName and all ratchetXxx fields null — do not invent a ratchet. Many ratchet-integrated blades also have a manual height-change gimmick with TWO ways to sit (look for "ノーマルモード"/Normal Mode and "ローモード"/Low Mode labels, usually color-coded — orange/yellow for Normal Mode, blue for Low Mode) and print two numbers per stat like "50/70" (Normal Mode first, Low Mode second, sometimes as two overlapping bars in those same two colors). Put the Normal Mode (orange/first) numbers in bladeAttack/bladeDefense/bladeStamina as usual, and the Low Mode (blue/second) numbers in bladeAttackLow/bladeDefenseLow/bladeStaminaLow. If a blade only shows one number per stat, it doesn't have this gimmick — leave the *Low fields null.
+Some blades are printed as "ラチェット一体型ブレード" ("ratchet-integrated blade") — the blade and ratchet are ONE fused physical part, so that bey has no separate ratchet at all. You'll see this from the part being labeled "ラチェット一体型ブレード/[name]" instead of a plain "ブレード/[name]", and the bey's printed name itself will have no ratchet-code segment (e.g. just "Hellsnether-Z" = Blade "Hellsnether" + Bit "Z", nothing in between). When you see this, set bladeIsIntegrated to true and put the blade's name in bladeName as usual.
 
-The back of the box has a printed stats table for each beyblade, with one bar-chart block of numbers per part (Blade, then Ratchet, then Bit). The tricky part: each bar-chart block of numbers is printed ABOVE the labeled text that names that part, not below it — the label comes AFTER its numbers, not before. Reading top to bottom for one beyblade: first a quoted special-technique name in "" marks (e.g. "ディープブレイク") with a description, and beside it 3 stat bars (攻撃/防御/持久 = Attack/Defense/Stamina) — those 3 numbers are the BLADE's stats, even though no "ブレード" label has appeared yet. Immediately after come the blade's own picture and its "ブレード/[name]" label + description — that label is only naming/describing the blade whose numbers you just read above it; it does not introduce new numbers. Right after that label comes the next bar-chart block (4 bars: 攻撃/防御/持久/高さ = Attack/Defense/Stamina/Height) — those numbers are the RATCHET's stats, and the "ラチェット/[code]" label + description that follows is just naming that ratchet. Right after THAT label comes a final bar-chart block (up to 5 bars: 攻撃/防御/持久/ダッシュ/バースト耐性 = Attack/Defense/Stamina/Dash/Burst Resistance) — those numbers are the BIT's stats, named by the "ビット/[code]" label that follows them. In short: always attribute a bar-chart block of numbers to the part name printed immediately AFTER it, never the one immediately before it. Bits often do have their own Attack/Defense/Stamina bars printed, not just Dash/Burst Resistance — read every bar that's actually shown for the bit's block. If a blade has a "Dash Change" gimmick showing two numbers joined by an arrow (e.g. "25→55"), record only the first/base number, not the second.
-
-Each block's numbers belong ONLY to that block, for that specific beyblade — never reuse or copy a number from one block into another, and never mix up which beyblade a block belongs to. Before calling the tool, first write out in plain text exactly what you see, one line per block, in the order printed, and explicitly note which part name follows each block since that's the part those numbers belong to (e.g. "Block beside quoted technique name, before 'ブレード/シャークスケイル' label: Attack 70, Defense 15, Stamina 15 -> these are Sharkscale's BLADE stats" / "Block after 'ブレード/シャークスケイル' label, before 'ラチェット/4-50' label: Attack 12, Defense 13, Stamina 5, Height 50 -> these are the RATCHET's stats" / "Block after 'ラチェット/4-50' label, before 'ビット/UF' label: Attack 55, Defense 5, Stamina 5, Dash 35, Burst Resistance 80 -> these are the BIT's stats" / and so on for each subsequent beyblade). Then call extract_box_info using exactly those transcribed values, assigned to the correct part per that rule — do not let numbers drift between blocks or between beyblades.
-
-IMPORTANT double-check, because Ratchet and Bit blocks both start with the same three Attack/Defense/Stamina bars and it's easy to swap them: a block's type is also identified by what extra bar it has, independent of its position — a block with a 高さ/Height bar is ALWAYS the ratchet's block (blade and bit never have Height), and a block with ダッシュ/Dash and バースト耐性/Burst Resistance bars is ALWAYS the bit's block (blade and ratchet never have Dash or Burst Resistance). Keep each block's Attack/Defense/Stamina together with its OWN Height (or Dash/Burst Resistance) as one unit — never let a Height reading end up paired with one block's Attack/Defense/Stamina while that block's true Attack/Defense/Stamina drifts to the neighboring block. After transcribing, re-check: does the block you labeled RATCHET contain the Height reading, and does the block you labeled BIT contain the Dash and Burst Resistance readings? If not, you've swapped them — fix it before calling the tool.
+The back of the box prints, for each beyblade, several distinct bar-chart blocks of numbers (攻撃 = Attack, 防御 = Defense, 持久 = Stamina, 高さ = Height, ダッシュ = Dash, バースト耐性 = Burst Resistance), each grouped with its own picture and description. One of these three blocks — the blade's — is often positioned next to a quoted special-technique name in "" marks (e.g. "ディープブレイク") rather than next to a plain "ブレード/[name]" label; don't skip it just because there's no plain blade label right there — it's a real block and still counts as one of this beyblade's three. For each beyblade, find every one of these blocks and add one entry to that beyblade's "blocks" array per block, in the order they're printed. For each block, just faithfully transcribe exactly the bars THAT block shows — do NOT try to figure out whether a block is the blade's, ratchet's, or bit's; that gets worked out afterward automatically from which bars it has. Concretely:
+- If a block shows only attack/defense/stamina, fill in those three fields and leave height/dash/burstResistance null.
+- If a block also shows a 高さ/Height bar, fill that in too.
+- If a block also shows ダッシュ/Dash and/or バースト耐性/Burst Resistance bars, fill those in too.
+- If a block shows TWO numbers per stat instead of one (a blade with a manual height-change gimmick — look for "ノーマルモード"/Normal Mode vs "ローモード"/Low Mode labels, usually color-coded orange/yellow vs blue), put the first/orange number in attack/defense/stamina and the second/blue number in attackLow/defenseLow/staminaLow.
+- Read every bar actually grouped in a block's panel before moving on — a block can have more than three bars, don't stop early.
+Most beyblades have exactly 3 blocks (blade, ratchet, bit). A ratchet-integrated blade (bladeIsIntegrated = true) has only 2, since it has no separate ratchet — don't invent a third block for it. Work through one beyblade's blocks completely before starting the next one, and never let a number drift from one beyblade's block into another's.
 
 Read the box and record what you can actually see. Only fill in a field if you can read it in the photo(s) — never guess or invent a plausible-sounding value; leave it null instead.`;
+
+const BLOCK_SCHEMA = {
+  type: "object",
+  properties: {
+    attack: { type: ["integer", "null"], description: "This block's printed Attack stat." },
+    defense: { type: ["integer", "null"], description: "This block's printed Defense stat." },
+    stamina: { type: ["integer", "null"], description: "This block's printed Stamina stat." },
+    height: { type: ["integer", "null"], description: "This block's printed Height stat, only if this block actually shows a Height bar (only a ratchet's block does)." },
+    dash: { type: ["integer", "null"], description: "This block's printed Dash stat, only if this block actually shows a Dash bar (only a bit's block does)." },
+    burstResistance: { type: ["integer", "null"], description: "This block's printed Burst Resistance stat, only if this block actually shows a Burst Resistance bar (only a bit's block does)." },
+    attackLow: { type: ["integer", "null"], description: "Second (Low Mode) Attack number, only if this block shows two numbers per stat." },
+    defenseLow: { type: ["integer", "null"], description: "Second (Low Mode) Defense number, only if this block shows two numbers per stat." },
+    staminaLow: { type: ["integer", "null"], description: "Second (Low Mode) Stamina number, only if this block shows two numbers per stat." },
+  },
+  required: ["attack", "defense", "stamina", "height", "dash", "burstResistance", "attackLow", "defenseLow", "staminaLow"],
+} as const;
 
 const BEY_ITEM_SCHEMA = {
   type: "object",
@@ -78,7 +131,7 @@ const BEY_ITEM_SCHEMA = {
     },
     ratchetName: {
       type: ["string", "null"],
-      description: 'Just the ratchet\'s code, e.g. "4-50". Null if you can\'t confidently split it out.',
+      description: 'Just the ratchet\'s code, e.g. "4-50". Null if you can\'t confidently split it out, or if bladeIsIntegrated is true.',
     },
     bitName: {
       type: ["string", "null"],
@@ -88,29 +141,13 @@ const BEY_ITEM_SCHEMA = {
       type: ["boolean", "null"],
       description: "True if this is a \"ratchet-integrated blade\" (labeled ラチェット一体型ブレード) with no separate ratchet part. Null/false otherwise.",
     },
-    bladeAttack: { type: ["integer", "null"], description: "This beyblade's blade printed Attack stat (Normal Mode, if it has a mode-change gimmick)." },
-    bladeDefense: { type: ["integer", "null"], description: "This beyblade's blade printed Defense stat (Normal Mode, if it has a mode-change gimmick)." },
-    bladeStamina: { type: ["integer", "null"], description: "This beyblade's blade printed Stamina stat (Normal Mode, if it has a mode-change gimmick)." },
-    bladeAttackLow: { type: ["integer", "null"], description: "Low Mode Attack stat, only for a blade with a Normal/Low mode-change gimmick. Null otherwise." },
-    bladeDefenseLow: { type: ["integer", "null"], description: "Low Mode Defense stat, only for a blade with a Normal/Low mode-change gimmick. Null otherwise." },
-    bladeStaminaLow: { type: ["integer", "null"], description: "Low Mode Stamina stat, only for a blade with a Normal/Low mode-change gimmick. Null otherwise." },
-    ratchetAttack: { type: ["integer", "null"], description: "This beyblade's ratchet printed Attack stat." },
-    ratchetDefense: { type: ["integer", "null"], description: "This beyblade's ratchet printed Defense stat." },
-    ratchetStamina: { type: ["integer", "null"], description: "This beyblade's ratchet printed Stamina stat." },
-    ratchetHeight: { type: ["integer", "null"], description: "This beyblade's ratchet printed Height stat." },
-    bitAttack: { type: ["integer", "null"], description: "This beyblade's bit printed Attack stat." },
-    bitDefense: { type: ["integer", "null"], description: "This beyblade's bit printed Defense stat." },
-    bitStamina: { type: ["integer", "null"], description: "This beyblade's bit printed Stamina stat." },
-    bitDash: { type: ["integer", "null"], description: "This beyblade's bit printed Dash stat." },
-    bitBurstResistance: { type: ["integer", "null"], description: "This beyblade's bit printed Burst Resistance stat." },
+    blocks: {
+      type: "array",
+      description: "One entry per distinct bar-chart stats block printed for this beyblade, in the order printed. Normally 3 (blade, ratchet, bit); 2 for a ratchet-integrated blade.",
+      items: BLOCK_SCHEMA,
+    },
   },
-  required: [
-    "name", "bladeName", "ratchetName", "bitName", "bladeIsIntegrated",
-    "bladeAttack", "bladeDefense", "bladeStamina",
-    "bladeAttackLow", "bladeDefenseLow", "bladeStaminaLow",
-    "ratchetAttack", "ratchetDefense", "ratchetStamina", "ratchetHeight",
-    "bitAttack", "bitDefense", "bitStamina", "bitDash", "bitBurstResistance",
-  ],
+  required: ["name", "bladeName", "ratchetName", "bitName", "bladeIsIntegrated", "blocks"],
 } as const;
 
 const EXTRACT_TOOL: Anthropic.Tool = {
@@ -157,12 +194,36 @@ function deriveFromBeyName(name: string | null) {
   };
 }
 
+type RawBlock = z.infer<typeof blockSchema>;
+
+// Classify each raw block by the stats it actually contains — a block with
+// a Height reading can only be the ratchet's, a block with Dash and/or
+// Burst Resistance can only be the bit's, and a block with neither (just
+// attack/defense/stamina, possibly doubled for a mode-change blade) is the
+// blade's. This is deterministic and independent of block order or label
+// position, which is what made the model's own type-assignment unreliable.
+function classifyBlocks(blocks: RawBlock[]) {
+  let blade: RawBlock | null = null;
+  let ratchet: RawBlock | null = null;
+  let bit: RawBlock | null = null;
+  for (const b of blocks) {
+    if (b.height != null && !ratchet) {
+      ratchet = b;
+    } else if ((b.dash != null || b.burstResistance != null) && !bit) {
+      bit = b;
+    } else if (!blade) {
+      blade = b;
+    }
+  }
+  return { blade, ratchet, bit };
+}
+
 export async function analyzeBoxPhotos(
   photoUrls: string[],
 ): Promise<BoxAnalysis> {
   const response = await anthropic.messages.create({
     model,
-    max_tokens: 3000,
+    max_tokens: 4000,
     tools: [EXTRACT_TOOL],
     tool_choice: { type: "any" },
     messages: [
@@ -187,23 +248,49 @@ export async function analyzeBoxPhotos(
   const parsed = boxAnalysisSchema.safeParse(toolUse.input);
   if (!parsed.success) throw new Error("Vision model returned unexpected shape");
 
-  const beys = parsed.data.beys.map((bey) => {
-    // Trust the model's own direct per-part reads first — it can see labeled
-    // breakdowns on the box (e.g. a blade name with its own letter suffix,
-    // like "Hellsbrave J", distinct from a ratchet code) that a blind regex
-    // split of the combined name field can't distinguish. Only fall back to
-    // splitting the combined name when a direct field is missing.
-    if (bey.bladeIsIntegrated || (bey.bladeName && bey.ratchetName && bey.bitName)) return bey;
-    const derived = deriveFromBeyName(bey.name);
-    return derived
-      ? {
-          ...bey,
-          bladeName: bey.bladeName ?? derived.bladeName,
-          ratchetName: bey.ratchetName ?? derived.ratchetName,
-          bitName: bey.bitName ?? derived.bitName,
-        }
-      : bey;
+  const beys: BeyAnalysis[] = parsed.data.beys.map((raw) => {
+    const { blade, ratchet, bit } = classifyBlocks(raw.blocks);
+
+    let bladeName = raw.bladeName;
+    let ratchetName = raw.ratchetName;
+    let bitName = raw.bitName;
+    // Trust the model's own direct per-part name reads first — it can see
+    // labeled breakdowns on the box (e.g. a blade name with its own letter
+    // suffix, like "Hellsbrave J", distinct from a ratchet code) that a
+    // blind regex split of the combined name field can't distinguish. Only
+    // fall back to splitting the combined name when a direct field is missing.
+    if (!raw.bladeIsIntegrated && !(bladeName && ratchetName && bitName)) {
+      const derived = deriveFromBeyName(raw.name);
+      if (derived) {
+        bladeName = bladeName ?? derived.bladeName;
+        ratchetName = ratchetName ?? derived.ratchetName;
+        bitName = bitName ?? derived.bitName;
+      }
+    }
+
+    return {
+      name: raw.name,
+      bladeName,
+      ratchetName: raw.bladeIsIntegrated ? null : ratchetName,
+      bitName,
+      bladeIsIntegrated: raw.bladeIsIntegrated,
+      bladeAttack: blade?.attack ?? null,
+      bladeDefense: blade?.defense ?? null,
+      bladeStamina: blade?.stamina ?? null,
+      bladeAttackLow: blade?.attackLow ?? null,
+      bladeDefenseLow: blade?.defenseLow ?? null,
+      bladeStaminaLow: blade?.staminaLow ?? null,
+      ratchetAttack: ratchet?.attack ?? null,
+      ratchetDefense: ratchet?.defense ?? null,
+      ratchetStamina: ratchet?.stamina ?? null,
+      ratchetHeight: ratchet?.height ?? null,
+      bitAttack: bit?.attack ?? null,
+      bitDefense: bit?.defense ?? null,
+      bitStamina: bit?.stamina ?? null,
+      bitDash: bit?.dash ?? null,
+      bitBurstResistance: bit?.burstResistance ?? null,
+    };
   });
 
-  return { ...parsed.data, beys };
+  return { boxCode: parsed.data.boxCode, boxName: parsed.data.boxName, beys };
 }
