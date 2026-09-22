@@ -1,8 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import sharp from "sharp";
 import { z } from "zod";
-import { uploadBuffer } from "@/lib/storage";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -22,19 +20,6 @@ const nullableInt = z.number().int().nullable();
 // blade/ratchet/bit happens deterministically in code (see classifyBlocks),
 // purely from which stats a block contains — never from its position
 // relative to a label, which varies from box to box and isn't reliable.
-// No photoIndex here on purpose — always relative to the LAST photo given
-// (see cropPartImage), not a photo the model has to pick itself. Letting the
-// model choose which photo an icon is on was an extra failure mode: it
-// sometimes pointed at the front cover photo (which only has box art and
-// the assembled-beyblade render, never individual part icons) instead of
-// the back photo where the stats table and part icons actually are.
-const imageBoxSchema = z.object({
-  x: z.number(),
-  y: z.number(),
-  width: z.number(),
-  height: z.number(),
-});
-
 const blockSchema = z.object({
   attack: nullableInt,
   defense: nullableInt,
@@ -46,11 +31,6 @@ const blockSchema = z.object({
   attackLow: nullableInt,
   defenseLow: nullableInt,
   staminaLow: nullableInt,
-  // Bounding box of this block's own small part illustration (the picture
-  // grouped with it), used to auto-crop a part photo. Null if no picture is
-  // clearly grouped with this block. Travels with the block through
-  // classifyBlocks, so it needs no separate blade/ratchet/bit reasoning.
-  imageBox: imageBoxSchema.nullable(),
 });
 
 const rawBeySchema = z.object({
@@ -94,12 +74,6 @@ export type BeyAnalysis = {
   bitStamina: number | null;
   bitDash: number | null;
   bitBurstResistance: number | null;
-  // Auto-cropped from the box photo(s), null if no picture was found for
-  // that part. The add-box form uses these as starting photos the player
-  // can still override by tapping to take a real one.
-  bladePhotoUrl: string | null;
-  ratchetPhotoUrl: string | null;
-  bitPhotoUrl: string | null;
 };
 
 export type BoxAnalysis = {
@@ -126,22 +100,7 @@ The back of the box prints, for each beyblade, several distinct bar-chart blocks
 - Read every bar actually grouped in a block's panel before moving on — a block can have more than three bars, don't stop early.
 Most beyblades have exactly 3 blocks (blade, ratchet, bit). A ratchet-integrated blade (bladeIsIntegrated = true) has only 2, since it has no separate ratchet — don't invent a third block for it. Work through one beyblade's blocks completely before starting the next one, and never let a number drift from one beyblade's block into another's.
 
-Each block on the back of the box is grouped with its own small picture of just that one part — a single product icon of the blade alone, the ratchet alone, or the bit alone, always shown on a plain black background right next to that block's bars and description. This is different from the OTHER pictures on the box, which you must NOT use for imageBox: don't use the character/person portrait (has a face and a name tag, usually near the top of the column), and don't use the larger motion-blurred action shot of the fully-assembled beyblade (also usually near the top, above the technique name). Only the small single-part icon on a black background, positioned right beside its own block's numbers, counts.
-
-These icons and the printed stats table are always on the LAST photo you were given (if you were given more than one photo, the earlier one(s) are the box's front cover — just box art and a larger assembled-beyblade render, never individual part icons — ignore the front cover entirely for this). For each block, give that icon's location as imageBox: a bounding box as fractions of that LAST photo's full width/height (x, y = top-left corner of the icon, where 0,0 is that photo's top-left corner and 1,1 is its bottom-right corner; width, height = how much of that photo's total width/height the icon spans, typically quite small since it's one icon among many on a busy box — think carefully before writing width/height, since guessing too large will crop in neighboring text or other parts' icons instead). Look again at exactly where the icon's edges are before answering; don't estimate the block's whole panel as the box, only the icon itself. If you can't find a clear standalone icon for a block on that last photo, leave imageBox null rather than guessing.
-
 Read the box and record what you can actually see. Only fill in a field if you can read it in the photo(s) — never guess or invent a plausible-sounding value; leave it null instead.`;
-
-const IMAGE_BOX_SCHEMA = {
-  type: "object",
-  properties: {
-    x: { type: "number", description: "Left edge of the picture, as a fraction of the last photo's width (0 = left edge, 1 = right edge)." },
-    y: { type: "number", description: "Top edge of the picture, as a fraction of the last photo's height (0 = top edge, 1 = bottom edge)." },
-    width: { type: "number", description: "Width of the picture, as a fraction of the last photo's width." },
-    height: { type: "number", description: "Height of the picture, as a fraction of the last photo's height." },
-  },
-  required: ["x", "y", "width", "height"],
-} as const;
 
 const BLOCK_SCHEMA = {
   type: "object",
@@ -155,12 +114,8 @@ const BLOCK_SCHEMA = {
     attackLow: { type: ["integer", "null"], description: "Second (Low Mode) Attack number, only if this block shows two numbers per stat." },
     defenseLow: { type: ["integer", "null"], description: "Second (Low Mode) Defense number, only if this block shows two numbers per stat." },
     staminaLow: { type: ["integer", "null"], description: "Second (Low Mode) Stamina number, only if this block shows two numbers per stat." },
-    imageBox: {
-      anyOf: [IMAGE_BOX_SCHEMA, { type: "null" }],
-      description: "Bounding box of this block's own small part picture. Null if no clear standalone picture is grouped with this block.",
-    },
   },
-  required: ["attack", "defense", "stamina", "height", "dash", "burstResistance", "attackLow", "defenseLow", "staminaLow", "imageBox"],
+  required: ["attack", "defense", "stamina", "height", "dash", "burstResistance", "attackLow", "defenseLow", "staminaLow"],
 } as const;
 
 const BEY_ITEM_SCHEMA = {
@@ -263,61 +218,6 @@ function classifyBlocks(blocks: RawBlock[]) {
   return { blade, ratchet, bit };
 }
 
-type ImageBox = z.infer<typeof imageBoxSchema>;
-
-async function fetchImageBuffer(url: string, cache: Map<string, Buffer>): Promise<Buffer> {
-  const cached = cache.get(url);
-  if (cached) return cached;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed to fetch photo: ${url}`);
-  const buffer = Buffer.from(await res.arrayBuffer());
-  cache.set(url, buffer);
-  return buffer;
-}
-
-// Crops a part's picture out of the box's back photo and uploads it as its
-// own image. Never throws — a bad box just means no auto-cropped photo, not
-// a broken analysis. Always uses the LAST photo in photoUrls: add-box-form
-// sends [front, back] (front omitted if not provided), and the stats table
-// and part icons only ever appear on the back — matching what the prompt
-// tells the model its imageBox coordinates are relative to.
-async function cropPartImage(
-  photoUrls: string[],
-  box: ImageBox,
-  bufferCache: Map<string, Buffer>,
-): Promise<string | null> {
-  const url = photoUrls[photoUrls.length - 1];
-  if (!url) return null;
-
-  try {
-    const buffer = await fetchImageBuffer(url, bufferCache);
-    const meta = await sharp(buffer).metadata();
-    if (!meta.width || !meta.height) return null;
-
-    const clamp = (v: number) => Math.min(1, Math.max(0, v));
-    const pad = 0.08; // small margin around the model's box, so a tight crop isn't cutting the part off
-    const x0 = clamp(box.x - box.width * pad);
-    const y0 = clamp(box.y - box.height * pad);
-    const x1 = clamp(box.x + box.width * (1 + pad));
-    const y1 = clamp(box.y + box.height * (1 + pad));
-
-    const left = Math.round(x0 * meta.width);
-    const top = Math.round(y0 * meta.height);
-    const width = Math.round((x1 - x0) * meta.width);
-    const height = Math.round((y1 - y0) * meta.height);
-    if (width < 20 || height < 20) return null; // degenerate box, not worth cropping
-
-    const cropped = await sharp(buffer)
-      .extract({ left, top, width, height })
-      .jpeg({ quality: 90 })
-      .toBuffer();
-
-    return await uploadBuffer(cropped, "image/jpeg");
-  } catch {
-    return null;
-  }
-}
-
 async function requestExtraction(photoUrls: string[]) {
   const response = await anthropic.messages.create({
     model,
@@ -356,62 +256,51 @@ export async function analyzeBoxPhotos(
   if (!data) data = await requestExtraction(photoUrls);
   if (!data) throw new Error("Couldn't read a valid response from the vision model — try again");
 
-  const bufferCache = new Map<string, Buffer>();
+  const resolved = data.beys.map((raw) => {
+    const { blade, ratchet, bit } = classifyBlocks(raw.blocks);
 
-  const beys: BeyAnalysis[] = await Promise.all(
-    data.beys.map(async (raw) => {
-      const { blade, ratchet, bit } = classifyBlocks(raw.blocks);
-
-      let bladeName = raw.bladeName;
-      let ratchetName = raw.ratchetName;
-      let bitName = raw.bitName;
-      // Trust the model's own direct per-part name reads first — it can see
-      // labeled breakdowns on the box (e.g. a blade name with its own letter
-      // suffix, like "Hellsbrave J", distinct from a ratchet code) that a
-      // blind regex split of the combined name field can't distinguish. Only
-      // fall back to splitting the combined name when a direct field is missing.
-      if (!raw.bladeIsIntegrated && !(bladeName && ratchetName && bitName)) {
-        const derived = deriveFromBeyName(raw.name);
-        if (derived) {
-          bladeName = bladeName ?? derived.bladeName;
-          ratchetName = ratchetName ?? derived.ratchetName;
-          bitName = bitName ?? derived.bitName;
-        }
+    let bladeName = raw.bladeName;
+    let ratchetName = raw.ratchetName;
+    let bitName = raw.bitName;
+    // Trust the model's own direct per-part name reads first — it can see
+    // labeled breakdowns on the box (e.g. a blade name with its own letter
+    // suffix, like "Hellsbrave J", distinct from a ratchet code) that a
+    // blind regex split of the combined name field can't distinguish. Only
+    // fall back to splitting the combined name when a direct field is missing.
+    if (!raw.bladeIsIntegrated && !(bladeName && ratchetName && bitName)) {
+      const derived = deriveFromBeyName(raw.name);
+      if (derived) {
+        bladeName = bladeName ?? derived.bladeName;
+        ratchetName = ratchetName ?? derived.ratchetName;
+        bitName = bitName ?? derived.bitName;
       }
+    }
 
-      const [bladePhotoUrl, ratchetPhotoUrl, bitPhotoUrl] = await Promise.all([
-        blade?.imageBox ? cropPartImage(photoUrls, blade.imageBox, bufferCache) : null,
-        ratchet?.imageBox ? cropPartImage(photoUrls, ratchet.imageBox, bufferCache) : null,
-        bit?.imageBox ? cropPartImage(photoUrls, bit.imageBox, bufferCache) : null,
-      ]);
+    return { raw, blade, ratchet, bit, bladeName, ratchetName, bitName };
+  });
 
-      return {
-        name: raw.name,
-        bladeName,
-        ratchetName: raw.bladeIsIntegrated ? null : ratchetName,
-        bitName,
-        bladeIsIntegrated: raw.bladeIsIntegrated,
-        bladeAttack: blade?.attack ?? null,
-        bladeDefense: blade?.defense ?? null,
-        bladeStamina: blade?.stamina ?? null,
-        bladeAttackLow: blade?.attackLow ?? null,
-        bladeDefenseLow: blade?.defenseLow ?? null,
-        bladeStaminaLow: blade?.staminaLow ?? null,
-        ratchetAttack: ratchet?.attack ?? null,
-        ratchetDefense: ratchet?.defense ?? null,
-        ratchetStamina: ratchet?.stamina ?? null,
-        ratchetHeight: ratchet?.height ?? null,
-        bitAttack: bit?.attack ?? null,
-        bitDefense: bit?.defense ?? null,
-        bitStamina: bit?.stamina ?? null,
-        bitDash: bit?.dash ?? null,
-        bitBurstResistance: bit?.burstResistance ?? null,
-        bladePhotoUrl,
-        ratchetPhotoUrl: raw.bladeIsIntegrated ? null : ratchetPhotoUrl,
-        bitPhotoUrl,
-      };
-    }),
-  );
+  const beys: BeyAnalysis[] = resolved.map(({ raw, blade, ratchet, bit, bladeName, ratchetName, bitName }) => ({
+    name: raw.name,
+    bladeName,
+    ratchetName: raw.bladeIsIntegrated ? null : ratchetName,
+    bitName,
+    bladeIsIntegrated: raw.bladeIsIntegrated,
+    bladeAttack: blade?.attack ?? null,
+    bladeDefense: blade?.defense ?? null,
+    bladeStamina: blade?.stamina ?? null,
+    bladeAttackLow: blade?.attackLow ?? null,
+    bladeDefenseLow: blade?.defenseLow ?? null,
+    bladeStaminaLow: blade?.staminaLow ?? null,
+    ratchetAttack: ratchet?.attack ?? null,
+    ratchetDefense: ratchet?.defense ?? null,
+    ratchetStamina: ratchet?.stamina ?? null,
+    ratchetHeight: ratchet?.height ?? null,
+    bitAttack: bit?.attack ?? null,
+    bitDefense: bit?.defense ?? null,
+    bitStamina: bit?.stamina ?? null,
+    bitDash: bit?.dash ?? null,
+    bitBurstResistance: bit?.burstResistance ?? null,
+  }));
 
   return { boxCode: data.boxCode, boxName: data.boxName, beys };
 }
