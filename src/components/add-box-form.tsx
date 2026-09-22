@@ -128,6 +128,10 @@ export function AddBoxForm({
     "idle" | "analyzing" | "done" | "error"
   >("idle");
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
+  // Bumped whenever photo analysis fills in auto-cropped part photos, so the
+  // PhotoCapture previews below (which only read their initial photo once,
+  // on mount) remount and pick up the new URLs.
+  const [photosVersion, setPhotosVersion] = useState(0);
 
   const [isPending, startTransition] = useTransition();
   const [isDeleting, startDeleteTransition] = useTransition();
@@ -173,11 +177,12 @@ export function AddBoxForm({
             bladeStats: statsFromAnalysisBey(bey, "blade", [...BLADE_STAT_FIELDS, ...BLADE_LOW_STAT_FIELDS]),
             ratchetStats: statsFromAnalysisBey(bey, "ratchet", RATCHET_STAT_FIELDS),
             bitStats: statsFromAnalysisBey(bey, "bit", BIT_STAT_FIELDS),
-            bladePhotoUrl: null,
-            ratchetPhotoUrl: null,
-            bitPhotoUrl: null,
+            bladePhotoUrl: typeof bey.bladePhotoUrl === "string" ? bey.bladePhotoUrl : null,
+            ratchetPhotoUrl: typeof bey.ratchetPhotoUrl === "string" ? bey.ratchetPhotoUrl : null,
+            bitPhotoUrl: typeof bey.bitPhotoUrl === "string" ? bey.bitPhotoUrl : null,
           })),
         );
+        setPhotosVersion((v) => v + 1);
       }
       setAnalyzeStatus("done");
     } catch (err) {
@@ -309,6 +314,7 @@ export function AddBoxForm({
             Ratchet-integrated blade (blade and ratchet are one fused part, e.g. Hellsnether)
           </label>
           <PartField
+            key={`blade-${photosVersion}`}
             label="Blade"
             value={bey.bladeName}
             onChange={(v) => updateBey(i, { bladeName: v })}
@@ -321,6 +327,7 @@ export function AddBoxForm({
           />
           {!bey.bladeIsIntegrated && (
             <PartField
+              key={`ratchet-${photosVersion}`}
               label="Ratchet"
               value={bey.ratchetName}
               onChange={(v) => updateBey(i, { ratchetName: v })}
@@ -333,6 +340,7 @@ export function AddBoxForm({
             />
           )}
           <PartField
+            key={`bit-${photosVersion}`}
             label="Bit"
             value={bey.bitName}
             onChange={(v) => updateBey(i, { bitName: v })}

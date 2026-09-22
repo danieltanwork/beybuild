@@ -15,6 +15,11 @@ const s3 = new S3Client({
     accessKeyId: process.env.NEON_STORAGE_ACCESS_KEY_ID!,
     secretAccessKey: process.env.NEON_STORAGE_SECRET_ACCESS_KEY!,
   },
+  // Neon's S3-compatible endpoint doesn't support the SDK's default
+  // request/response checksum trailers — without this, a direct
+  // s3.send(PutObjectCommand) (used by uploadBuffer) fails with a 403.
+  requestChecksumCalculation: "WHEN_REQUIRED",
+  responseChecksumValidation: "WHEN_REQUIRED",
 });
 
 export async function createUploadUrl(filename: string, contentType: string) {
@@ -30,4 +35,18 @@ export async function createUploadUrl(filename: string, contentType: string) {
   const publicUrl = `${endpoint}/${bucket}/${key}`;
 
   return { uploadUrl, publicUrl };
+}
+
+// Server-side upload for images we generate ourselves (e.g. auto-cropped
+// part photos), as opposed to createUploadUrl's presigned URL for the
+// browser to upload a user-picked file directly.
+export async function uploadBuffer(buffer: Buffer, contentType: string) {
+  const ext = contentType.split("/")[1] || "jpg";
+  const key = `${randomUUID()}.${ext}`;
+
+  await s3.send(
+    new PutObjectCommand({ Bucket: bucket, Key: key, Body: buffer, ContentType: contentType }),
+  );
+
+  return `${endpoint}/${bucket}/${key}`;
 }
