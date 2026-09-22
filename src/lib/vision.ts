@@ -22,8 +22,13 @@ const nullableInt = z.number().int().nullable();
 // blade/ratchet/bit happens deterministically in code (see classifyBlocks),
 // purely from which stats a block contains — never from its position
 // relative to a label, which varies from box to box and isn't reliable.
+// No photoIndex here on purpose — always relative to the LAST photo given
+// (see cropPartImage), not a photo the model has to pick itself. Letting the
+// model choose which photo an icon is on was an extra failure mode: it
+// sometimes pointed at the front cover photo (which only has box art and
+// the assembled-beyblade render, never individual part icons) instead of
+// the back photo where the stats table and part icons actually are.
 const imageBoxSchema = z.object({
-  photoIndex: z.number().int(),
   x: z.number(),
   y: z.number(),
   width: z.number(),
@@ -123,20 +128,19 @@ Most beyblades have exactly 3 blocks (blade, ratchet, bit). A ratchet-integrated
 
 Each block on the back of the box is grouped with its own small picture of just that one part — a single product icon of the blade alone, the ratchet alone, or the bit alone, always shown on a plain black background right next to that block's bars and description. This is different from the OTHER pictures on the box, which you must NOT use for imageBox: don't use the character/person portrait (has a face and a name tag, usually near the top of the column), and don't use the larger motion-blurred action shot of the fully-assembled beyblade (also usually near the top, above the technique name). Only the small single-part icon on a black background, positioned right beside its own block's numbers, counts.
 
-For each block, give that icon's location as imageBox: which photo it's in (photoIndex — the photos are given to you in order starting at 0), and a bounding box as fractions of that photo's full width/height (x, y = top-left corner of the icon, where 0,0 is the photo's top-left corner and 1,1 is its bottom-right corner; width, height = how much of the photo's total width/height the icon spans, typically quite small since it's one icon among many on a busy box — think carefully before writing width/height, since guessing too large will crop in neighboring text or other parts' icons instead). Look again at exactly where the icon's edges are before answering; don't estimate the block's whole panel as the box, only the icon itself. If you can't find a clear standalone icon for a block, leave imageBox null rather than guessing.
+These icons and the printed stats table are always on the LAST photo you were given (if you were given more than one photo, the earlier one(s) are the box's front cover — just box art and a larger assembled-beyblade render, never individual part icons — ignore the front cover entirely for this). For each block, give that icon's location as imageBox: a bounding box as fractions of that LAST photo's full width/height (x, y = top-left corner of the icon, where 0,0 is that photo's top-left corner and 1,1 is its bottom-right corner; width, height = how much of that photo's total width/height the icon spans, typically quite small since it's one icon among many on a busy box — think carefully before writing width/height, since guessing too large will crop in neighboring text or other parts' icons instead). Look again at exactly where the icon's edges are before answering; don't estimate the block's whole panel as the box, only the icon itself. If you can't find a clear standalone icon for a block on that last photo, leave imageBox null rather than guessing.
 
 Read the box and record what you can actually see. Only fill in a field if you can read it in the photo(s) — never guess or invent a plausible-sounding value; leave it null instead.`;
 
 const IMAGE_BOX_SCHEMA = {
   type: "object",
   properties: {
-    photoIndex: { type: "integer", description: "Which photo this picture is in, 0 for the first photo given, 1 for the second, etc." },
-    x: { type: "number", description: "Left edge of the picture, as a fraction of that photo's width (0 = left edge, 1 = right edge)." },
-    y: { type: "number", description: "Top edge of the picture, as a fraction of that photo's height (0 = top edge, 1 = bottom edge)." },
-    width: { type: "number", description: "Width of the picture, as a fraction of that photo's width." },
-    height: { type: "number", description: "Height of the picture, as a fraction of that photo's height." },
+    x: { type: "number", description: "Left edge of the picture, as a fraction of the last photo's width (0 = left edge, 1 = right edge)." },
+    y: { type: "number", description: "Top edge of the picture, as a fraction of the last photo's height (0 = top edge, 1 = bottom edge)." },
+    width: { type: "number", description: "Width of the picture, as a fraction of the last photo's width." },
+    height: { type: "number", description: "Height of the picture, as a fraction of the last photo's height." },
   },
-  required: ["photoIndex", "x", "y", "width", "height"],
+  required: ["x", "y", "width", "height"],
 } as const;
 
 const BLOCK_SCHEMA = {
@@ -271,15 +275,18 @@ async function fetchImageBuffer(url: string, cache: Map<string, Buffer>): Promis
   return buffer;
 }
 
-// Crops a part's picture out of one of the box photos and uploads it as its
-// own image. Never throws — a bad or out-of-range box just means no
-// auto-cropped photo, not a broken analysis.
+// Crops a part's picture out of the box's back photo and uploads it as its
+// own image. Never throws — a bad box just means no auto-cropped photo, not
+// a broken analysis. Always uses the LAST photo in photoUrls: add-box-form
+// sends [front, back] (front omitted if not provided), and the stats table
+// and part icons only ever appear on the back — matching what the prompt
+// tells the model its imageBox coordinates are relative to.
 async function cropPartImage(
   photoUrls: string[],
   box: ImageBox,
   bufferCache: Map<string, Buffer>,
 ): Promise<string | null> {
-  const url = photoUrls[box.photoIndex];
+  const url = photoUrls[photoUrls.length - 1];
   if (!url) return null;
 
   try {
