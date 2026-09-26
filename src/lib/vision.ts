@@ -426,8 +426,20 @@ async function cropSheetItem(
     const height = Math.round((y1 - y0) * meta.height);
     if (width < 10 || height < 10) return null;
 
+    // The sheet's cells aren't square (a bit's cell in particular crops to a
+    // tall, narrow rectangle), but every part photo in the app is displayed
+    // in a square tile with object-cover — which would crop a tall rectangle
+    // down further and cut the icon off all over again. Composite the crop
+    // onto a fixed white square canvas instead of shipping the raw crop, so
+    // the whole icon is always visible regardless of its own aspect ratio —
+    // matching how the source sheet already presents it, on plain white.
     const cropped = await sharp(buffer)
       .extract({ left, top, width, height })
+      .resize(640, 640, {
+        fit: "contain",
+        background: { r: 255, g: 255, b: 255, alpha: 1 },
+      })
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
       .jpeg({ quality: 90 })
       .toBuffer();
 
