@@ -7,6 +7,11 @@ import { savePartSheetPhotos } from "@/app/inventory/actions";
 type PartType = "blade" | "ratchet" | "bit";
 
 type SheetItem = {
+  // What's actually printed on the sheet (e.g. "Gear Flat" for a bit).
+  label: string;
+  // What the catalog stores this part under (e.g. "GF") — for blades and
+  // ratchets this is the same as label; for bits it's the abbreviation
+  // derived from the full name, since that's what boxes print.
   code: string;
   croppedPhotoUrl: string;
   matched: boolean;
@@ -48,7 +53,13 @@ export function PartsLibraryForm() {
       // overwrites a photo already saved. Still selectable if you want to
       // replace it with a better crop.
       const detected: SheetItem[] = (data.items ?? []).map(
-        (item: { code: string; croppedPhotoUrl: string; matched: boolean; hasPhoto: boolean }) => ({
+        (item: {
+          label: string;
+          code: string;
+          croppedPhotoUrl: string;
+          matched: boolean;
+          hasPhoto: boolean;
+        }) => ({
           ...item,
           selected: item.matched && !item.hasPhoto,
         }),
@@ -61,9 +72,12 @@ export function PartsLibraryForm() {
     }
   }
 
-  function toggleItem(code: string) {
+  // Keyed by label, not code — two different labels can derive the same
+  // bit abbreviation (e.g. "Turbo" and "Taper" both -> "T"), so code alone
+  // isn't a safe unique key for toggling or React's key prop.
+  function toggleItem(label: string) {
     setItems((prev) =>
-      prev.map((it) => (it.code === code ? { ...it, selected: !it.selected } : it)),
+      prev.map((it) => (it.label === label ? { ...it, selected: !it.selected } : it)),
     );
   }
 
@@ -132,7 +146,7 @@ export function PartsLibraryForm() {
           <div className="grid grid-cols-3 gap-2">
             {items.map((item) => (
               <label
-                key={item.code}
+                key={item.label}
                 className={`flex flex-col items-center gap-1 rounded-xl border p-2 ${
                   item.matched
                     ? "border-border"
@@ -142,16 +156,23 @@ export function PartsLibraryForm() {
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src={item.croppedPhotoUrl}
-                  alt={item.code}
+                  alt={item.label}
                   className="aspect-square w-full rounded-lg border border-border object-cover"
                 />
-                <span className="text-xs font-semibold text-foreground">{item.code}</span>
+                <span className="text-center text-xs font-semibold text-foreground">
+                  {item.label}
+                  {item.code !== item.label && (
+                    <span className="block text-[10px] font-normal text-neon-cyan">
+                      → {item.code}
+                    </span>
+                  )}
+                </span>
                 {item.matched ? (
                   <>
                     <input
                       type="checkbox"
                       checked={item.selected}
-                      onChange={() => toggleItem(item.code)}
+                      onChange={() => toggleItem(item.label)}
                       className="h-4 w-4 accent-neon-cyan"
                     />
                     {item.hasPhoto && (

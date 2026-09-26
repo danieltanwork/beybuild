@@ -318,6 +318,25 @@ export async function analyzeBoxPhotos(
 // landing on the label instead of the icon near an image's bottom edge —
 // callers should treat the result as something to review, not an
 // unattended write to the shared parts catalog.
+//
+// Bit reference sheets are a special case: they print each bit's full
+// descriptive name ("Gear Flat", "Turbo", "Rubber Accel"), but a box's own
+// printed bey name only ever shows the short abbreviation ("GF", "T", "RA")
+// — which is what ends up as that bit's name in the parts catalog (see
+// analyzeBoxPhotos). Every bit currently in the catalog matches exactly
+// taking the first letter of each word in its full name (e.g. "Gear Flat"
+// -> "GF", "Disc Ball" -> "DB", "Rush" -> "R"), so that's how a sheet's full
+// name is converted to a catalog-matchable code. This does have a handful of
+// real collisions (e.g. "Turbo" and "Taper" both -> "T"; "Operate" and "Orb"
+// both -> "O") — rare enough, and safe enough given the review-before-save
+// step, not to block on.
+export function deriveBitAbbreviation(fullName: string): string {
+  return fullName
+    .trim()
+    .split(/\s+/)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
+}
 
 const sheetItemSchema = z.object({
   code: z.string(),
