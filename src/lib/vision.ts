@@ -399,26 +399,55 @@ function buildReportSheetTool(partType: "blade" | "ratchet" | "bit"): Anthropic.
 
 export type SheetIcon = { code: string; croppedPhotoUrl: string };
 
+type SheetBox = { x: number; y: number; width: number; height: number };
+
+// A fixed padding fraction works on a sparse sheet (a handful of cells with
+// wide gaps) but bleeds straight into the next cell on a dense one (many
+// columns/rows packed tight) — 20% of a cell's own size can be bigger than
+// the actual gap to its neighbor. So padding is capped at the midpoint to
+// the nearest neighboring cell in whichever direction one exists, and only
+// falls back to the full generous margin where there's no neighbor to
+// bleed into (e.g. a sheet with only one column, or an edge cell).
+function paddedBoxClampedToNeighbors(box: SheetBox, allBoxes: SheetBox[], pad: number) {
+  let x0 = box.x - box.width * pad;
+  let y0 = box.y - box.height * pad;
+  let x1 = box.x + box.width * (1 + pad);
+  let y1 = box.y + box.height * (1 + pad);
+
+  for (const other of allBoxes) {
+    if (other === box) continue;
+    // Same row (overlaps vertically) -> a horizontal neighbor to clamp x against.
+    if (other.y < box.y + box.height && other.y + other.height > box.y) {
+      if (other.x >= box.x) x1 = Math.min(x1, (box.x + box.width + other.x) / 2);
+      else x0 = Math.max(x0, (other.x + other.width + box.x) / 2);
+    }
+    // Same column (overlaps horizontally) -> a vertical neighbor to clamp y against.
+    if (other.x < box.x + box.width && other.x + other.width > box.x) {
+      if (other.y >= box.y) y1 = Math.min(y1, (box.y + box.height + other.y) / 2);
+      else y0 = Math.max(y0, (other.y + other.height + box.y) / 2);
+    }
+  }
+
+  const clamp = (v: number) => Math.min(1, Math.max(0, v));
+  return { x0: clamp(x0), y0: clamp(y0), x1: clamp(x1), y1: clamp(y1) };
+}
+
 // Crops one grid-cell icon out of a sheet's photo buffer and uploads it.
 // Never throws — a bad box just means that one item is skipped.
 async function cropSheetItem(
   buffer: Buffer,
-  box: { x: number; y: number; width: number; height: number },
+  box: SheetBox,
+  allBoxes: SheetBox[],
 ): Promise<string | null> {
   try {
     const meta = await sharp(buffer).metadata();
     if (!meta.width || !meta.height) return null;
 
-    const clamp = (v: number) => Math.min(1, Math.max(0, v));
     // A generous margin — the model's own box is already the whole cell
     // (icon + label), so this just absorbs its remaining imprecision. Worst
     // case is a sliver of a neighboring cell creeping in, which is a far
     // better failure mode than cutting off the actual part.
-    const pad = 0.2;
-    const x0 = clamp(box.x - box.width * pad);
-    const y0 = clamp(box.y - box.height * pad);
-    const x1 = clamp(box.x + box.width * (1 + pad));
-    const y1 = clamp(box.y + box.height * (1 + pad));
+    const { x0, y0, x1, y1 } = paddedBoxClampedToNeighbors(box, allBoxes, 0.2);
 
     const left = Math.round(x0 * meta.width);
     const top = Math.round(y0 * meta.height);
@@ -468,7 +497,7 @@ export async function extractPartSheetIcons(
         content: [
           {
             type: "text",
-            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a grid on a plain white background. Each grid cell contains one icon picture with its printed code (e.g. ${PART_CODE_EXAMPLE[partType]}) directly below it. Report every cell: its code, and a tight bounding box around the WHOLE cell — starting at the top of the icon picture and extending down to include its code label below, with no other cell's content inside.`,
+            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a grid on a plain white background. Each grid cell contains one icon picture with its printed code (e.g. ${PART_CODE_EXAMPLE[partType]}) directly below it — the icon is ALWAYS the topmost element of its cell, well above its own code text; never anchor the box's top edge at the code text itself. Report every cell: its code, and a tight bounding box around the WHOLE cell, where the TOP edge (y) is the top of the icon picture (not the label) and the box extends down far enough to also include that same cell's code label below it, with no other cell's content inside.`,
           },
           { type: "image", source: { type: "url", url: sheetUrl } },
         ],
@@ -484,7 +513,7 @@ export async function extractPartSheetIcons(
 
   const results = await Promise.all(
     parsed.data.items.map(async (item) => {
-      const croppedPhotoUrl = await cropSheetItem(buffer, item);
+      const croppedPhotoUrl = await cropSheetItem(buffer, item, parsed.data.items);
       return croppedPhotoUrl ? { code: item.code, croppedPhotoUrl } : null;
     }),
   );
