@@ -49,6 +49,16 @@ function normalize(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
+// Fixed locale + UTC so server and client render the same string.
+function formatDay(isoDay: string) {
+  return new Date(`${isoDay}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 export function BuildPicker({
   blades,
   ratchets,
@@ -160,29 +170,46 @@ export function BuildPicker({
 
       {metaPicks.length > 0 && (
         <div className="neon-card flex flex-col gap-3 rounded-2xl border border-neon-lime/40 p-4">
-          <div className="flex items-center justify-between gap-2">
+          <div>
             <span className="rounded-full bg-neon-lime px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-background">
               Meta picks
             </span>
-            <span className="text-[10px] text-muted-foreground">
-              WBO top-3 finishes, 90 days{metaAsOf ? ` to ${metaAsOf}` : ""}
-            </span>
+            <p className="mt-2 text-xs text-muted-foreground">
+              The ratchet + bit players most often won with using{" "}
+              <span className="font-semibold text-foreground">{selected.blade?.name}</span>{" "}
+              at WBO tournaments in the last 90 days
+              {metaAsOf ? ` (to ${formatDay(metaAsOf)})` : ""}.
+            </p>
           </div>
-          {metaPicks.map(({ combo, ratchet, bit, missing }) => (
+          {metaPicks.map(({ combo, ratchet, bit, missing }, i) => (
             <div
               key={`${combo.ratchetName}-${combo.bitName}`}
-              className="flex items-center justify-between gap-3"
+              className="flex items-center justify-between gap-3 border-t border-border pt-3"
             >
-              <div>
-                <p className="text-sm font-semibold text-foreground">
-                  {[combo.ratchetName, combo.bitName].filter(Boolean).join(" + ")}
-                  <span className="ml-2 text-[11px] font-normal text-muted-foreground">
-                    {combo.topFinishes}×
-                  </span>
-                </p>
-                {missing.length > 0 && (
-                  <p className="text-[11px] text-neon-red">Need {missing.join(" + ")}</p>
-                )}
+              <div className="flex items-start gap-3">
+                <span className="text-lg font-bold text-neon-lime">#{i + 1}</span>
+                <div>
+                  <p className="text-sm text-foreground">
+                    {combo.ratchetName && (
+                      <>
+                        <span className="font-semibold">{combo.ratchetName}</span>{" "}
+                        <span className="text-muted-foreground">ratchet + </span>
+                      </>
+                    )}
+                    <span className="font-semibold">{combo.bitName}</span>{" "}
+                    <span className="text-muted-foreground">bit</span>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {combo.topFinishes} top-3 {combo.topFinishes === 1 ? "finish" : "finishes"}
+                  </p>
+                  {missing.length > 0 ? (
+                    <p className="text-[11px] text-neon-red">
+                      You don&rsquo;t own {missing.join(" or ")}
+                    </p>
+                  ) : (
+                    <p className="text-[11px] text-neon-lime">You own these parts</p>
+                  )}
+                </div>
               </div>
               <button
                 type="button"
