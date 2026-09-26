@@ -347,15 +347,31 @@ export function deriveBitAbbreviation(fullName: string): string {
     .join("");
 }
 
-const sheetItemSchema = z.object({
-  code: z.string(),
-  x: z.number(),
-  y: z.number(),
-  width: z.number(),
-  height: z.number(),
+// Asking the model for an individual tight box per cell was unreliable even
+// after several rounds of prompt fixes — on a dense grid it would still
+// sometimes grab a neighboring cell's icon whole, or (worst) report a box
+// that landed on empty space between rows. The fix isn't a better per-cell
+// prompt: these sheets are genuinely uniform grids (confirmed across every
+// sheet tested), so cell position is arithmetic, not something to eyeball
+// per cell. The model only needs to report: where the whole grid starts and
+// ends vertically (gridY0/gridY1) and, per row, its codes left-to-right plus
+// that row's left/right extent — row height then comes from dividing the
+// grid's vertical span evenly by the row count, and column width from
+// dividing each row's own span evenly by its code count. Verified against a
+// sheet that repeatedly broke under the old per-cell approach (a wrong
+// neighboring cell's icon, and a fully blank last row) — every cell came out
+// correct once cropped this way.
+const gridRowSchema = z.object({
+  codes: z.array(z.string()),
+  x0: z.number(),
+  x1: z.number(),
 });
 
-const sheetResultSchema = z.object({ items: z.array(sheetItemSchema) });
+const gridResultSchema = z.object({
+  gridY0: z.number(),
+  gridY1: z.number(),
+  rows: z.array(gridRowSchema),
+});
 
 // Ratchet codes are "number-number" (e.g. "4-60"); bit codes are 1-3 bare
 // letters (e.g. "GF", "Z", "UF") with no digits at all; blade names are full
@@ -369,85 +385,50 @@ const PART_CODE_EXAMPLE: Record<"blade" | "ratchet" | "bit", string> = {
   bit: '"GF", "LF", "Z" (short, letters only, no numbers)',
 };
 
-function buildReportSheetTool(partType: "blade" | "ratchet" | "bit"): Anthropic.Tool {
+function buildReportGridTool(partType: "blade" | "ratchet" | "bit"): Anthropic.Tool {
   return {
-    name: "report_grid_items",
-    description:
-      "Report every grid cell in this reference sheet: its printed code label and a tight bounding box around the whole cell (icon picture plus its code label together, as one unit).",
+    name: "report_grid",
+    description: "Report the structure of this reference sheet's grid.",
     input_schema: {
       type: "object",
       properties: {
-        items: {
+        gridY0: { type: "number", description: "Top edge of the very first row's icons (the topmost icon in the whole grid), as a fraction of image height." },
+        gridY1: { type: "number", description: "Bottom edge of the very last row's printed labels (the bottommost label in the whole grid), as a fraction of image height." },
+        rows: {
           type: "array",
+          description: "One entry per horizontal row of icons, top to bottom. Rows are evenly spaced, so only left/right extent is needed per row — vertical position is derived from gridY0/gridY1 and the row count.",
           items: {
             type: "object",
             properties: {
-              code: { type: "string", description: `The printed code in this cell, e.g. ${PART_CODE_EXAMPLE[partType]}.` },
-              x: { type: "number", description: "Left edge of the whole cell (icon + label together), as a fraction of image width." },
-              y: { type: "number", description: "Top edge of the whole cell — starting at the icon's top, not the label — as a fraction of image height." },
-              width: { type: "number", description: "Width of the whole cell, as a fraction of image width." },
-              height: { type: "number", description: "Height of the whole cell, from the top of the icon picture down through the bottom of its printed code label, as a fraction of image height." },
+              codes: { type: "array", items: { type: "string" }, description: `The printed code under each icon in this row, left to right, e.g. ${PART_CODE_EXAMPLE[partType]}.` },
+              x0: { type: "number", description: "Left edge of this row (leftmost icon's left edge), as a fraction of image width." },
+              x1: { type: "number", description: "Right edge of this row (rightmost icon's right edge), as a fraction of image width." },
             },
-            required: ["code", "x", "y", "width", "height"],
+            required: ["codes", "x0", "x1"],
           },
         },
       },
-      required: ["items"],
+      required: ["gridY0", "gridY1", "rows"],
     },
   };
 }
 
 export type SheetIcon = { code: string; croppedPhotoUrl: string };
 
-type SheetBox = { x: number; y: number; width: number; height: number };
-
-// A fixed padding fraction works on a sparse sheet (a handful of cells with
-// wide gaps) but bleeds straight into the next cell on a dense one (many
-// columns/rows packed tight) — 20% of a cell's own size can be bigger than
-// the actual gap to its neighbor. So padding is capped at the midpoint to
-// the nearest neighboring cell in whichever direction one exists, and only
-// falls back to the full generous margin where there's no neighbor to
-// bleed into (e.g. a sheet with only one column, or an edge cell).
-function paddedBoxClampedToNeighbors(box: SheetBox, allBoxes: SheetBox[], pad: number) {
-  let x0 = box.x - box.width * pad;
-  let y0 = box.y - box.height * pad;
-  let x1 = box.x + box.width * (1 + pad);
-  let y1 = box.y + box.height * (1 + pad);
-
-  for (const other of allBoxes) {
-    if (other === box) continue;
-    // Same row (overlaps vertically) -> a horizontal neighbor to clamp x against.
-    if (other.y < box.y + box.height && other.y + other.height > box.y) {
-      if (other.x >= box.x) x1 = Math.min(x1, (box.x + box.width + other.x) / 2);
-      else x0 = Math.max(x0, (other.x + other.width + box.x) / 2);
-    }
-    // Same column (overlaps horizontally) -> a vertical neighbor to clamp y against.
-    if (other.x < box.x + box.width && other.x + other.width > box.x) {
-      if (other.y >= box.y) y1 = Math.min(y1, (box.y + box.height + other.y) / 2);
-      else y0 = Math.max(y0, (other.y + other.height + box.y) / 2);
-    }
-  }
-
-  const clamp = (v: number) => Math.min(1, Math.max(0, v));
-  return { x0: clamp(x0), y0: clamp(y0), x1: clamp(x1), y1: clamp(y1) };
-}
+type SheetBox = { x0: number; y0: number; x1: number; y1: number };
 
 // Crops one grid-cell icon out of a sheet's photo buffer and uploads it.
 // Never throws — a bad box just means that one item is skipped.
-async function cropSheetItem(
-  buffer: Buffer,
-  box: SheetBox,
-  allBoxes: SheetBox[],
-): Promise<string | null> {
+async function cropSheetItem(buffer: Buffer, box: SheetBox): Promise<string | null> {
   try {
     const meta = await sharp(buffer).metadata();
     if (!meta.width || !meta.height) return null;
 
-    // A generous margin — the model's own box is already the whole cell
-    // (icon + label), so this just absorbs its remaining imprecision. Worst
-    // case is a sliver of a neighboring cell creeping in, which is a far
-    // better failure mode than cutting off the actual part.
-    const { x0, y0, x1, y1 } = paddedBoxClampedToNeighbors(box, allBoxes, 0.2);
+    const clamp = (v: number) => Math.min(1, Math.max(0, v));
+    const x0 = clamp(box.x0);
+    const y0 = clamp(box.y0);
+    const x1 = clamp(box.x1);
+    const y1 = clamp(box.y1);
 
     const left = Math.round(x0 * meta.width);
     const top = Math.round(y0 * meta.height);
@@ -489,7 +470,7 @@ export async function extractPartSheetIcons(
   const response = await anthropic.messages.create({
     model,
     max_tokens: 4000,
-    tools: [buildReportSheetTool(partType)],
+    tools: [buildReportGridTool(partType)],
     tool_choice: { type: "any" },
     messages: [
       {
@@ -497,7 +478,7 @@ export async function extractPartSheetIcons(
         content: [
           {
             type: "text",
-            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a grid on a plain white background. Each grid cell contains one icon picture with its printed code (e.g. ${PART_CODE_EXAMPLE[partType]}) directly below it — the icon is ALWAYS the topmost element of its cell, well above its own code text; never anchor the box's top edge at the code text itself. Report every cell: its code, and a tight bounding box around the WHOLE cell, where the TOP edge (y) is the top of the icon picture (not the label) and the box extends down far enough to also include that same cell's code label below it, with no other cell's content inside.`,
+            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a uniform grid on a plain white background: rows of evenly-spaced icons, each with its printed code directly below it, and rows themselves evenly spaced top to bottom. Report: the top edge of the very first row's icons and the bottom edge of the very last row's labels (gridY0/gridY1), and then each row's codes (left to right) with just that row's left/right extent — since rows are evenly spaced you don't need to re-estimate each row's own vertical position.`,
           },
           { type: "image", source: { type: "url", url: sheetUrl } },
         ],
@@ -508,13 +489,32 @@ export async function extractPartSheetIcons(
   const toolUse = response.content.find((block) => block.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") return [];
 
-  const parsed = sheetResultSchema.safeParse(toolUse.input);
+  const parsed = gridResultSchema.safeParse(toolUse.input);
   if (!parsed.success) return [];
 
+  const { gridY0, gridY1, rows } = parsed.data;
+  if (rows.length === 0) return [];
+  const rowHeight = (gridY1 - gridY0) / rows.length;
+  const pad = 0.08; // a modest margin — cell positions are now arithmetic, not estimated, so there's much less imprecision to absorb than the old per-cell-box approach needed
+
   const results = await Promise.all(
-    parsed.data.items.map(async (item) => {
-      const croppedPhotoUrl = await cropSheetItem(buffer, item, parsed.data.items);
-      return croppedPhotoUrl ? { code: item.code, croppedPhotoUrl } : null;
+    rows.flatMap((row, r) => {
+      const rowY0 = gridY0 + r * rowHeight;
+      const rowY1 = gridY0 + (r + 1) * rowHeight;
+      const colWidth = (row.x1 - row.x0) / row.codes.length;
+
+      return row.codes.map(async (code, i) => {
+        const colX0 = row.x0 + i * colWidth;
+        const colX1 = colX0 + colWidth;
+        const box: SheetBox = {
+          x0: colX0 - colWidth * pad,
+          y0: rowY0 - rowHeight * pad,
+          x1: colX1 + colWidth * pad,
+          y1: rowY1 + rowHeight * pad,
+        };
+        const croppedPhotoUrl = await cropSheetItem(buffer, box);
+        return croppedPhotoUrl ? { code, croppedPhotoUrl } : null;
+      });
     }),
   );
 
