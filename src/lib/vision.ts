@@ -351,25 +351,29 @@ export function deriveBitAbbreviation(fullName: string): string {
 // after several rounds of prompt fixes — on a dense grid it would still
 // sometimes grab a neighboring cell's icon whole, or (worst) report a box
 // that landed on empty space between rows. The fix isn't a better per-cell
-// prompt: these sheets are genuinely uniform grids (confirmed across every
-// sheet tested), so cell position is arithmetic, not something to eyeball
-// per cell. The model only needs to report: where the whole grid starts and
-// ends vertically (gridY0/gridY1) and, per row, its codes left-to-right plus
-// that row's left/right extent — row height then comes from dividing the
-// grid's vertical span evenly by the row count, and column width from
-// dividing each row's own span evenly by its code count. Verified against a
-// sheet that repeatedly broke under the old per-cell approach (a wrong
-// neighboring cell's icon, and a fully blank last row) — every cell came out
-// correct once cropped this way.
+// prompt: these sheets are genuinely uniform grids WITHIN a row (confirmed
+// across every sheet tested), so column position is arithmetic, not
+// something to eyeball per cell — the model only needs each row's codes
+// left-to-right plus that row's own left/right extent, and column width
+// comes from dividing that span evenly by the code count.
+//
+// Rows themselves, though, are NOT always evenly spaced or sized — one
+// sheet mixed small individual bits with one much taller fully-assembled
+// top in its last row, and dividing the whole grid's height evenly by row
+// count inflated every other row's box enough to bleed into the row below.
+// Each row's own vertical extent is estimated independently instead (still
+// with the same "the icon is always above its own label, never anchor at
+// the label" guidance that fixed a similar mislocalization for per-cell
+// boxes).
 const gridRowSchema = z.object({
   codes: z.array(z.string()),
   x0: z.number(),
+  y0: z.number(),
   x1: z.number(),
+  y1: z.number(),
 });
 
 const gridResultSchema = z.object({
-  gridY0: z.number(),
-  gridY1: z.number(),
   rows: z.array(gridRowSchema),
 });
 
@@ -392,23 +396,23 @@ function buildReportGridTool(partType: "blade" | "ratchet" | "bit"): Anthropic.T
     input_schema: {
       type: "object",
       properties: {
-        gridY0: { type: "number", description: "Top edge of the very first row's icons (the topmost icon in the whole grid), as a fraction of image height." },
-        gridY1: { type: "number", description: "Bottom edge of the very last row's printed labels (the bottommost label in the whole grid), as a fraction of image height." },
         rows: {
           type: "array",
-          description: "One entry per horizontal row of icons, top to bottom. Rows are evenly spaced, so only left/right extent is needed per row — vertical position is derived from gridY0/gridY1 and the row count.",
+          description: "One entry per horizontal row of icons, top to bottom. Rows can differ in height from each other (e.g. one row's icons might be noticeably larger than another row's) — estimate each row's own extent independently, don't assume every row is the same height.",
           items: {
             type: "object",
             properties: {
               codes: { type: "array", items: { type: "string" }, description: `The printed code under each icon in this row, left to right, e.g. ${PART_CODE_EXAMPLE[partType]}.` },
               x0: { type: "number", description: "Left edge of this row (leftmost icon's left edge), as a fraction of image width." },
+              y0: { type: "number", description: "Top edge of THIS row's own icons — the icon is always the topmost element of its row, well above its own code text; never anchor this at the row's code text, and never at the row above's content." },
               x1: { type: "number", description: "Right edge of this row (rightmost icon's right edge), as a fraction of image width." },
+              y1: { type: "number", description: "Bottom edge of THIS row's own printed labels (not the icon row below)." },
             },
-            required: ["codes", "x0", "x1"],
+            required: ["codes", "x0", "y0", "x1", "y1"],
           },
         },
       },
-      required: ["gridY0", "gridY1", "rows"],
+      required: ["rows"],
     },
   };
 }
@@ -491,7 +495,7 @@ export async function extractPartSheetIcons(
         content: [
           {
             type: "text",
-            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a uniform grid on a plain white background: rows of evenly-spaced icons, each with its printed code directly below it, and rows themselves evenly spaced top to bottom. Report: the top edge of the very first row's icons and the bottom edge of the very last row's labels (gridY0/gridY1), and then each row's codes (left to right) with just that row's left/right extent — since rows are evenly spaced you don't need to re-estimate each row's own vertical position.`,
+            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a grid on a plain white background: horizontal rows of icons, each with its printed code directly below it. Icons within a row are evenly spaced, but different rows can have different heights (e.g. one row's icons might be visually larger/taller than another row's, such as a fully-assembled item mixed in with smaller individual parts) — don't assume every row is the same height. Report each row top to bottom: its codes (left to right), and that row's own bounding box, estimated independently from the other rows.`,
           },
           { type: "image", source: { type: "url", url: sheetUrl } },
         ],
@@ -505,25 +509,39 @@ export async function extractPartSheetIcons(
   const parsed = gridResultSchema.safeParse(toolUse.input);
   if (!parsed.success) return [];
 
-  const { gridY0, gridY1, rows } = parsed.data;
-  if (rows.length === 0) return [];
-  const rowHeight = (gridY1 - gridY0) / rows.length;
-  const pad = 0.08; // a modest margin — cell positions are now arithmetic, not estimated, so there's much less imprecision to absorb than the old per-cell-box approach needed
+  const { rows } = parsed.data;
+  const pad = 0.08; // a modest margin — column position is arithmetic (not estimated), so there's much less imprecision to absorb than the old per-cell-box approach needed; row extent is still the model's own estimate, so it keeps this same margin
+  const heights = rows.map((r) => r.y1 - r.y0).sort((a, b) => a - b);
+  const medianHeight = heights[Math.floor(heights.length / 2)];
 
   const results = await Promise.all(
     rows.flatMap((row, r) => {
-      const rowY0 = gridY0 + r * rowHeight;
-      const rowY1 = gridY0 + (r + 1) * rowHeight;
+      const rowHeight = row.y1 - row.y0;
       const colWidth = (row.x1 - row.x0) / row.codes.length;
+      const isLastRow = r === rows.length - 1;
+
+      // The last row's own top-edge estimate is the least reliable of any
+      // row — there's no row below it to help calibrate against, and it
+      // often runs close to the photo's own bottom edge. Take whichever
+      // candidate is more generous (further up): the model's own estimate,
+      // or the previous row's bottom edge (that row DOES have a neighbor on
+      // both sides, so it's more reliable). Size the last row's bottom from
+      // a generous multiple of the sheet's median row height instead of the
+      // model's own last-row bottom (prone to overshoot) or the image's
+      // physical edge (which can swallow a footer far below on a sheet with
+      // more margin there).
+      const rowY0 =
+        isLastRow && r > 0 ? Math.min(row.y0 - rowHeight * pad, rows[r - 1].y1) : row.y0 - rowHeight * pad;
+      const rowY1 = isLastRow ? rowY0 + medianHeight * 1.3 : row.y1 + rowHeight * pad;
 
       return row.codes.map(async (code, i) => {
         const colX0 = row.x0 + i * colWidth;
         const colX1 = colX0 + colWidth;
         const box: SheetBox = {
           x0: colX0 - colWidth * pad,
-          y0: rowY0 - rowHeight * pad,
+          y0: rowY0,
           x1: colX1 + colWidth * pad,
-          y1: rowY1 + rowHeight * pad,
+          y1: rowY1,
         };
         const croppedPhotoUrl = await cropSheetItem(buffer, box);
         return croppedPhotoUrl ? { code, croppedPhotoUrl } : null;
