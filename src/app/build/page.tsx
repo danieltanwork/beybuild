@@ -1,16 +1,17 @@
 import { stackServerApp } from "@/lib/stack";
-import { getOwnedPartsByType, getBuildsWithParts } from "@/db/queries";
+import { getOwnedPartsByType, getBuildsWithParts, getTopMetaComboPerBlade } from "@/db/queries";
 import { BuildPicker } from "@/components/build-picker";
 import { deleteBuild } from "./actions";
 
 export default async function BuildPage() {
   const user = await stackServerApp.getUser({ or: "redirect" });
 
-  const [bladeRows, ratchetRows, bitRows, savedBuilds] = await Promise.all([
+  const [bladeRows, ratchetRows, bitRows, savedBuilds, metaCombos] = await Promise.all([
     getOwnedPartsByType(user.id, ["blade", "blade_ratchet"]),
     getOwnedPartsByType(user.id, "ratchet"),
     getOwnedPartsByType(user.id, "bit"),
     getBuildsWithParts(user.id),
+    getTopMetaComboPerBlade(),
   ]);
 
   const blades = bladeRows.map((r) => r.part);
@@ -27,7 +28,7 @@ export default async function BuildPage() {
           combos.
         </p>
       ) : (
-        <BuildPicker blades={blades} ratchets={ratchets} bits={bits} />
+        <BuildPicker blades={blades} ratchets={ratchets} bits={bits} metaCombos={metaCombos} />
       )}
 
       {savedBuilds.length > 0 && (

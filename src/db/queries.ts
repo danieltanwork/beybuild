@@ -2,7 +2,7 @@ import "server-only";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import { db } from "./index";
-import { builds, inventory, parts } from "./schema";
+import { builds, inventory, metaCombos, parts } from "./schema";
 
 type PartTypeFilter = "blade" | "ratchet" | "bit" | "blade_ratchet";
 
@@ -13,6 +13,7 @@ const bitParts = alias(parts, "bit_parts");
 export type PartRow = typeof parts.$inferSelect;
 export type InventoryRow = typeof inventory.$inferSelect;
 export type BuildRow = typeof builds.$inferSelect;
+export type MetaComboRow = typeof metaCombos.$inferSelect;
 
 export async function getInventoryCount(userId: string) {
   const rows = await db
@@ -119,4 +120,73 @@ export async function getBuildsWithParts(userId: string) {
     .innerJoin(bitParts, eq(builds.bitPartId, bitParts.id))
     .where(eq(builds.userId, userId))
     .orderBy(builds.createdAt);
+}
+
+// One row per blade, picking whichever of that blade's scraped combos ranks
+// best (highest win rate, falling back to pick rate when win rate is
+// missing). Used to surface a "meta pick" ratchet+bit suggestion on the
+// Build page once the player has selected a blade.
+export async function getTopMetaComboPerBlade() {
+  return db
+    .selectDistinctOn([metaCombos.bladeName])
+    .from(metaCombos)
+    .orderBy(
+      metaCombos.bladeName,
+      sql`${metaCombos.winRate} desc nulls last`,
+      sql`${metaCombos.pickRate} desc nulls last`,
+    );
+}
+
+// Upserts scraped combos keyed on (source, comboName) — a re-scrape updates
+// that combo's stats in place rather than accumulating duplicate rows.
+// Combos with no comboName (couldn't be read as one piece) are just
+// inserted fresh each time, since there's no stable key to upsert on.
+export async function upsertMetaCombos(
+  source: string,
+  combos: {
+    bladeName: string;
+    ratchetName: string | null;
+    bitName: string | null;
+    comboName: string | null;
+    winRate: number | null;
+    pickRate: number | null;
+    tier: string | null;
+  }[],
+) {
+  if (combos.length === 0) return;
+
+  const rows = combos.map((c) => ({
+    bladeName: c.bladeName,
+    ratchetName: c.ratchetName,
+    bitName: c.bitName,
+    comboName: c.comboName,
+    winRate: c.winRate?.toString() ?? null,
+    pickRate: c.pickRate?.toString() ?? null,
+    tier: c.tier,
+    source,
+  }));
+
+  const withComboName = rows.filter((r) => r.comboName != null);
+  const withoutComboName = rows.filter((r) => r.comboName == null);
+
+  if (withComboName.length > 0) {
+    await db
+      .insert(metaCombos)
+      .values(withComboName)
+      .onConflictDoUpdate({
+        target: [metaCombos.source, metaCombos.comboName],
+        set: {
+          bladeName: sql`excluded.blade_name`,
+          ratchetName: sql`excluded.ratchet_name`,
+          bitName: sql`excluded.bit_name`,
+          winRate: sql`excluded.win_rate`,
+          pickRate: sql`excluded.pick_rate`,
+          tier: sql`excluded.tier`,
+          scrapedAt: sql`now()`,
+        },
+      });
+  }
+  if (withoutComboName.length > 0) {
+    await db.insert(metaCombos).values(withoutComboName);
+  }
 }

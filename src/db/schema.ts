@@ -68,6 +68,31 @@ export const inventory = pgTable(
   (t) => [index("inventory_user_id_idx").on(t.userId)],
 );
 
+// Scraped competitive meta data — refreshed periodically from a public
+// tournament/meta-tracking site (see src/lib/meta.ts), not user-entered.
+// One row per distinct blade+ratchet+bit combo the source reports on.
+export const metaCombos = pgTable(
+  "meta_combos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bladeName: text("blade_name").notNull(),
+    ratchetName: text("ratchet_name"),
+    bitName: text("bit_name"),
+    // As printed by the source, e.g. "Shark Scale 4-50UF" — kept alongside
+    // the split-out fields since the split can fail on an unfamiliar format.
+    comboName: text("combo_name"),
+    winRate: numeric("win_rate", { precision: 5, scale: 2 }), // percent, e.g. 47.10
+    pickRate: numeric("pick_rate", { precision: 5, scale: 2 }), // percent, e.g. 12.30
+    tier: text("tier"), // e.g. "S", "A" — whatever the source itself labels
+    source: text("source").notNull(), // e.g. "metabeys.com"
+    scrapedAt: timestamp("scraped_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("meta_combos_source_combo_idx").on(t.source, t.comboName),
+    index("meta_combos_blade_name_idx").on(t.bladeName),
+  ],
+);
+
 export const builds = pgTable(
   "builds",
   {
