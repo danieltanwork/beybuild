@@ -81,10 +81,16 @@ export const metaCombos = pgTable(
     // As printed by the source, e.g. "Shark Scale 4-50UF" — kept alongside
     // the split-out fields since the split can fail on an unfamiliar format.
     comboName: text("combo_name"),
-    winRate: numeric("win_rate", { precision: 5, scale: 2 }), // percent, e.g. 47.10
-    pickRate: numeric("pick_rate", { precision: 5, scale: 2 }), // percent, e.g. 12.30
-    tier: text("tier"), // e.g. "S", "A" — whatever the source itself labels
-    source: text("source").notNull(), // e.g. "metabeys.com"
+    // Unused by the current WBO-results source (which reports placements, not
+    // aggregated rates); kept for a future dashboard-style source.
+    winRate: numeric("win_rate", { precision: 5, scale: 2 }),
+    pickRate: numeric("pick_rate", { precision: 5, scale: 2 }),
+    tier: text("tier"),
+    // Weighted top-3 finishes in the recent window (1st=3, 2nd=2, 3rd=1).
+    placementScore: integer("placement_score"),
+    topFinishes: integer("top_finishes"),
+    lastSeen: date("last_seen"),
+    source: text("source").notNull(),
     scrapedAt: timestamp("scraped_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

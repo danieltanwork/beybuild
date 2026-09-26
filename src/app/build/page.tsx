@@ -1,6 +1,7 @@
 import { stackServerApp } from "@/lib/stack";
-import { getOwnedPartsByType, getBuildsWithParts, getTopMetaComboPerBlade } from "@/db/queries";
-import { BuildPicker } from "@/components/build-picker";
+import { getOwnedPartsByType, getBuildsWithParts, getMetaCombosByScore } from "@/db/queries";
+import { metaCombosForBlade } from "@/lib/meta";
+import { BuildPicker, type MetaCombo } from "@/components/build-picker";
 import { deleteBuild } from "./actions";
 
 export default async function BuildPage() {
@@ -11,12 +12,25 @@ export default async function BuildPage() {
     getOwnedPartsByType(user.id, "ratchet"),
     getOwnedPartsByType(user.id, "bit"),
     getBuildsWithParts(user.id),
-    getTopMetaComboPerBlade(),
+    getMetaCombosByScore(),
   ]);
 
   const blades = bladeRows.map((r) => r.part);
   const ratchets = ratchetRows.map((r) => r.part);
   const bits = bitRows.map((r) => r.part);
+
+  const metaByBlade: Record<string, MetaCombo[]> = {};
+  for (const blade of blades) {
+    metaByBlade[blade.id] = metaCombosForBlade(blade.name, metaCombos, 3).map((c) => ({
+      ratchetName: c.ratchetName,
+      bitName: c.bitName,
+      topFinishes: c.topFinishes ?? 0,
+    }));
+  }
+  const metaAsOf = metaCombos.reduce<string | null>(
+    (max, c) => (c.lastSeen && (!max || c.lastSeen > max) ? c.lastSeen : max),
+    null,
+  );
 
   return (
     <main className="flex flex-1 flex-col gap-6 px-5 pt-8">
@@ -28,7 +42,13 @@ export default async function BuildPage() {
           combos.
         </p>
       ) : (
-        <BuildPicker blades={blades} ratchets={ratchets} bits={bits} metaCombos={metaCombos} />
+        <BuildPicker
+          blades={blades}
+          ratchets={ratchets}
+          bits={bits}
+          metaByBlade={metaByBlade}
+          metaAsOf={metaAsOf}
+        />
       )}
 
       {savedBuilds.length > 0 && (

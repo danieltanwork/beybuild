@@ -119,9 +119,32 @@ before touching this code again.
   picking an existing photo (needed for importing reference sheets, which
   are saved images, not something you'd photograph live).
 
-## In-progress / not yet decided
+## Meta suggestions: where the data comes from and why
 
-- User wants a **"suggested ratchet + bit" feature on the Build page**,
-  driven by recent competitive tournament meta (win rates from real
-  matches), not static stats. Researched but not built — see `progress.md`
-  for where that stands and what the options are.
+- **Source: a public GitHub archive of the WBO "Winning Combinations"
+  thread**, `catgamer109/WBO-BBX-Winning-Combos-Data-Archive`, file
+  `compiled_data/extracted_data.json` (~4.4MB, ~3,000 events, structured
+  top-3 placements with combo strings like `SharkScale 1-70LR`). Parsed
+  deterministically, no AI extraction. Freshness depends on that
+  maintainer (active as of Sept 2026); the refresh response's `dataAsOf`
+  shows how current it is.
+- **Tried and abandoned:** `metabeys.com` is a client-rendered SPA (a
+  server fetch sees a ~1.7KB empty shell); `worldbeyblade.org` returns 403
+  to Vercel's servers even with browser-shaped headers (IP-level bot
+  protection). Don't retry either without a new idea. Residential-proxy
+  scraping services were deliberately not used: they work around a block
+  the site chose to put up.
+- **Ranking:** weighted top-3 finishes (1st=3, 2nd=2, 3rd=1) over the 90
+  days before the archive's *newest* event (not today), so a lagging
+  archive still yields suggestions.
+- **CX blades:** WBO notation puts assist-blade letters before the ratchet
+  (`EmperorBlast H9-60K`), and those letters don't match the catalog's own
+  suffixes ("Brachiowhip OW" vs WBO's "OH"/"PH"). Parsing drops them, and
+  blade lookup falls back to the catalog name minus a short (≤3 char)
+  trailing token.
+- **Sandbox rule:** never fetch, or build something that fetches, content
+  from a sandbox-blocked host and then read it back here (e.g. calling the
+  deployed refresh endpoint while it pulled from a blocked site). That's
+  refused as containment escape. Have the user open such URLs and paste
+  the result. GitHub raw files aren't blocked, so the current source can be
+  tested locally.

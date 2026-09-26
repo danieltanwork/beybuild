@@ -1,149 +1,137 @@
 import "server-only";
-import Anthropic from "@anthropic-ai/sdk";
-import { z } from "zod";
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-const model = process.env.VISION_MODEL || "claude-sonnet-5";
+// A community-maintained archive of WBO's "Winning Combinations at WBO
+// Organized Events" thread, already parsed into per-event top-3 placements.
+// WBO's own forum 403s server-side fetches (bot protection that also rejects
+// browser-shaped headers), and metabeys.com is a client-rendered SPA — a
+// static JSON file on GitHub has neither problem. Freshness depends on the
+// archive's maintainer; `dataAsOf` in the refresh response shows how recent
+// it actually is.
+const ARCHIVE_URL =
+  "https://raw.githubusercontent.com/catgamer109/WBO-BBX-Winning-Combos-Data-Archive/main/compiled_data/extracted_data.json";
+export const META_SOURCE = "WBO tournaments";
 
-// WBO's "Winning Combinations at WBO Organized Events" forum thread — plain
-// server-rendered forum HTML (no JS rendering needed, unlike metabeys.com
-// which turned out to be a client-rendered SPA and only ever returned an
-// empty shell). This thread has new tournament results appended as new
-// forum posts over time, so it's paginated (MyBB-style `?page=N` links) and
-// the latest results are always on the LAST page — hardcoding a page number
-// would go stale, so we fetch page 1 first, scan its pagination links for
-// the highest page number, then fetch that page for the actual extraction
-// content.
-const THREAD_BASE_URL =
-  "https://worldbeyblade.org/Thread-Winning-Combinations-at-WBO-Organized-Events-Beyblade-X-BBX";
-const SOURCE = "worldbeyblade.org";
+const WINDOW_DAYS = 90;
+const RANK_WEIGHT: Record<string, number> = { "1st": 3, "2nd": 2, "3rd": 1 };
 
-const comboSchema = z.object({
-  bladeName: z.string(),
-  ratchetName: z.string().nullable(),
-  bitName: z.string().nullable(),
-  comboName: z.string().nullable(),
-  winRate: z.number().nullable(),
-  pickRate: z.number().nullable(),
-  tier: z.string().nullable(),
-});
-
-const resultSchema = z.object({ combos: z.array(comboSchema) });
-
-export type ScrapedCombo = z.infer<typeof comboSchema>;
-
-const EXTRACT_TOOL: Anthropic.Tool = {
-  name: "extract_meta_combos",
-  description:
-    "Extract every distinct Beyblade X competitive combo (blade+ratchet+bit) mentioned as a tournament-winning or placing result on this forum page.",
-  input_schema: {
-    type: "object",
-    properties: {
-      combos: {
-        type: "array",
-        items: {
-          type: "object",
-          properties: {
-            bladeName: { type: "string", description: 'Just the blade\'s name, e.g. "Shark Scale".' },
-            ratchetName: { type: ["string", "null"], description: 'The ratchet\'s code, e.g. "4-50". Null if not shown or not confidently split out.' },
-            bitName: { type: ["string", "null"], description: 'The bit\'s code, e.g. "UF". Null if not shown or not confidently split out.' },
-            comboName: { type: ["string", "null"], description: 'The full combo string as printed, if shown as one piece, e.g. "Shark Scale 4-50UF". Null if the post only lists parts separately.' },
-            winRate: { type: ["number", "null"], description: "Win rate as a plain percentage number, only if this page actually states one (rare for this source — most posts are just placement results, not aggregated stats). Null otherwise." },
-            pickRate: { type: ["number", "null"], description: "Pick/usage rate as a plain percentage number, only if this page actually states one. Null otherwise." },
-            tier: { type: ["string", "null"], description: 'Tier label if shown. Null if not shown (this source usually doesn\'t have one).' },
-          },
-          required: ["bladeName", "ratchetName", "bitName", "comboName", "winRate", "pickRate", "tier"],
-        },
-      },
-    },
-    required: ["combos"],
-  },
+type ArchiveEvent = {
+  event_date?: string;
+  placements?: { rank?: string; combos?: string[] }[];
 };
 
-function buildPrompt(pageContent: string) {
-  return `The following is the raw HTML of a page from the World Beyblade Organization (WBO) forum thread "Winning Combinations at WBO Organized Events". Each forum post in this thread reports the winning (and sometimes runner-up) combo(s) from a specific real-world tournament, formatted roughly like "1st: Blade Name Ratchet-BitCode" or "Winner: Blade Name 4-50UF" alongside a tournament name/date. Ignore forum chrome — navigation, avatars, signatures, ads, quoted replies, and unrelated discussion — and focus only on the reported winning/placing combos.
+export type MetaComboStat = {
+  bladeName: string;
+  ratchetName: string | null;
+  bitName: string;
+  comboName: string;
+  placementScore: number;
+  topFinishes: number;
+  lastSeen: string;
+};
 
-A Beyblade X combo's full name usually encodes three parts: Blade name + Ratchet code (a number, a dash, a 2-digit number, e.g. "4-50") + Bit code (1-3 letters, e.g. "UF"). If a post gives the ratchet/bit as part of one combined string, split them out into bladeName/ratchetName/bitName as best you can and also keep the original full string in comboName. Extract every distinct combo mentioned as a tournament result. This source generally does NOT include aggregated win-rate/pick-rate percentages or tier rankings (those come from a different kind of site) — only fill winRate/pickRate/tier in if a number or label is actually printed on the page; otherwise use null. It's normal and expected for those three fields to be null for every combo from this source.
-
---- PAGE CONTENT ---
-${pageContent}`;
+export function normalizeName(name: string) {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-type FetchResult = { ok: true; html: string } | { ok: false; error: string };
-
-// WBO's forum returned a bare 403 to a plain fetch() with a self-identifying
-// bot User-Agent — likely tripping bot-detection on the forum's front end
-// (Cloudflare or similar) rather than anything account/auth-specific, since
-// this is a public thread with no login wall. A standard browser-shaped
-// header set is tried here before giving up on this source entirely.
-async function fetchHtml(url: string): Promise<FetchResult> {
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-    });
-    if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status} ${res.statusText} from ${url}` };
-    }
-    return { ok: true, html: await res.text() };
-  } catch (err) {
-    return { ok: false, error: `${err instanceof Error ? err.name + ": " + err.message : String(err)} fetching ${url}` };
-  }
+// Dates come as either "2026-07-12" or "Sun. September 6, 2026".
+function parseEventDate(s: string | undefined): Date | null {
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return new Date(`${s.slice(0, 10)}T00:00:00Z`);
+  const t = Date.parse(`${s.replace(/^[A-Za-z]{3}\.?\s+/, "")} UTC`);
+  return Number.isNaN(t) ? null : new Date(t);
 }
 
-// MyBB-style pagination links look like
-// ".../Thread-...?page=88" (or "&page=88" alongside other query params).
-// Scan for every page number mentioned and take the max — the thread only
-// grows, so the highest number seen is the latest page.
-function findLatestPage(html: string): number | null {
-  const matches = [...html.matchAll(/[?&]page=(\d+)/g)].map((m) => parseInt(m[1], 10));
-  if (matches.length === 0) return null;
-  return Math.max(...matches);
+// "SharkScale 1-70LR", "EmperorBlast H9-60K" (CX: assist-blade letters before
+// the ratchet), "GloryValkyrie R" (ratchet-integrated blade, bit only),
+// "Lightning L-Drago (Upper Type) 1-60E". The CX assist letters are dropped:
+// WBO's letter codes don't consistently match how the catalog names those
+// blades, and the ratchet+bit suggestion is what matters here.
+const WITH_RATCHET = /^(.+?)\s+[A-Z]{0,3}(\d+-\d+)\s*([A-Z][A-Za-z]{0,2})$/;
+const BIT_ONLY = /^(.+?)\s+([A-Z][A-Za-z]{0,2})$/;
+
+function parseCombo(raw: string) {
+  const s = raw.replace(/\s*\([^)]*\)\s*$/, "").trim();
+  const m = s.match(WITH_RATCHET);
+  if (m) return { blade: m[1], ratchet: m[2], bit: m[3] };
+  const b = s.match(BIT_ONLY);
+  if (b) return { blade: b[1], ratchet: null, bit: b[2] };
+  return null;
 }
 
 export type MetaFetchResult =
-  | { ok: true; combos: ScrapedCombo[]; source: string; fetchedLength: number }
+  | { ok: true; combos: MetaComboStat[]; eventsInWindow: number; dataAsOf: string }
   | { ok: false; error: string };
 
 export async function fetchMetaCombos(): Promise<MetaFetchResult> {
-  const firstPage = await fetchHtml(THREAD_BASE_URL);
-  if (!firstPage.ok) return { ok: false, error: firstPage.error };
-  if (!firstPage.html.trim()) return { ok: true, combos: [], source: SOURCE, fetchedLength: 0 };
+  let events: ArchiveEvent[];
+  try {
+    const res = await fetch(ARCHIVE_URL, { cache: "no-store" });
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status} ${res.statusText} from ${ARCHIVE_URL}` };
+    events = await res.json();
+  } catch (err) {
+    return { ok: false, error: `${err instanceof Error ? err.message : String(err)} fetching ${ARCHIVE_URL}` };
+  }
+  if (!Array.isArray(events)) return { ok: false, error: "Archive JSON is not an array" };
 
-  const latestPage = findLatestPage(firstPage.html);
-  const targetUrl = latestPage && latestPage > 1 ? `${THREAD_BASE_URL}?page=${latestPage}` : THREAD_BASE_URL;
+  const dated = events
+    .map((e) => ({ e, date: parseEventDate(e.event_date) }))
+    .filter((x): x is { e: ArchiveEvent; date: Date } => x.date !== null);
+  if (dated.length === 0) return { ok: false, error: "No dated events in archive" };
 
-  const pageResult = targetUrl === THREAD_BASE_URL ? firstPage : await fetchHtml(targetUrl);
-  if (!pageResult.ok) return { ok: false, error: pageResult.error };
-  const html = pageResult.html;
-  if (!html.trim()) return { ok: true, combos: [], source: SOURCE, fetchedLength: 0 };
+  // Window is anchored to the newest event in the archive rather than today,
+  // so a lagging archive still yields suggestions instead of nothing.
+  const latest = Math.max(...dated.map((x) => x.date.getTime()));
+  const cutoff = latest - WINDOW_DAYS * 86_400_000;
 
-  // Truncate rather than send the whole page — plenty for a page's worth of
-  // forum posts, and keeps the call cheap. Adjust if real pages turn out to
-  // bury the data further down than this reaches.
-  const content = html.slice(0, 60000);
-
-  const response = await anthropic.messages.create({
-    model,
-    max_tokens: 4000,
-    tools: [EXTRACT_TOOL],
-    tool_choice: { type: "any" },
-    messages: [{ role: "user", content: buildPrompt(content) }],
-  });
-
-  const toolUse = response.content.find((block) => block.type === "tool_use");
-  if (!toolUse || toolUse.type !== "tool_use") {
-    return { ok: true, combos: [], source: SOURCE, fetchedLength: html.length };
+  const byKey = new Map<string, MetaComboStat>();
+  let eventsInWindow = 0;
+  for (const { e, date } of dated) {
+    if (date.getTime() < cutoff) continue;
+    eventsInWindow++;
+    const day = date.toISOString().slice(0, 10);
+    for (const p of e.placements ?? []) {
+      const weight = RANK_WEIGHT[p.rank ?? ""];
+      if (!weight) continue;
+      for (const raw of p.combos ?? []) {
+        const c = parseCombo(raw);
+        if (!c) continue;
+        const key = `${normalizeName(c.blade)}|${c.ratchet ?? ""}|${c.bit.toLowerCase()}`;
+        const stat = byKey.get(key) ?? {
+          bladeName: c.blade,
+          ratchetName: c.ratchet,
+          bitName: c.bit,
+          comboName: `${c.blade} ${c.ratchet ?? ""}${c.bit}`,
+          placementScore: 0,
+          topFinishes: 0,
+          lastSeen: day,
+        };
+        stat.placementScore += weight;
+        stat.topFinishes += 1;
+        if (day > stat.lastSeen) stat.lastSeen = day;
+        byKey.set(key, stat);
+      }
+    }
   }
 
-  const parsed = resultSchema.safeParse(toolUse.input);
-  if (!parsed.success) {
-    return { ok: true, combos: [], source: SOURCE, fetchedLength: html.length };
-  }
+  const combos = [...byKey.values()].sort((a, b) => b.placementScore - a.placementScore);
+  return { ok: true, combos, eventsInWindow, dataAsOf: new Date(latest).toISOString().slice(0, 10) };
+}
 
-  return { ok: true, combos: parsed.data.combos, source: SOURCE, fetchedLength: html.length };
+// Catalog CX blades carry an assist suffix ("Brachiowhip OW") that WBO's data
+// doesn't share, so fall back to the name without a short trailing token.
+export function metaCombosForBlade<T extends { bladeName: string }>(
+  bladeName: string,
+  combos: T[],
+  limit: number,
+): T[] {
+  const keys = [normalizeName(bladeName)];
+  const words = bladeName.trim().split(/\s+/);
+  if (words.length > 1 && words[words.length - 1].length <= 3) {
+    keys.push(normalizeName(words.slice(0, -1).join(" ")));
+  }
+  for (const key of keys) {
+    const matches = combos.filter((c) => normalizeName(c.bladeName) === key);
+    if (matches.length > 0) return matches.slice(0, limit);
+  }
+  return [];
 }

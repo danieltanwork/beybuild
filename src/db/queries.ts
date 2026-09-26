@@ -122,71 +122,33 @@ export async function getBuildsWithParts(userId: string) {
     .orderBy(builds.createdAt);
 }
 
-// One row per blade, picking whichever of that blade's scraped combos ranks
-// best (highest win rate, falling back to pick rate when win rate is
-// missing). Used to surface a "meta pick" ratchet+bit suggestion on the
-// Build page once the player has selected a blade.
-export async function getTopMetaComboPerBlade() {
+export async function getMetaCombosByScore() {
   return db
-    .selectDistinctOn([metaCombos.bladeName])
+    .select()
     .from(metaCombos)
-    .orderBy(
-      metaCombos.bladeName,
-      sql`${metaCombos.winRate} desc nulls last`,
-      sql`${metaCombos.pickRate} desc nulls last`,
-    );
+    .orderBy(sql`${metaCombos.placementScore} desc nulls last`);
 }
 
-// Upserts scraped combos keyed on (source, comboName) — a re-scrape updates
-// that combo's stats in place rather than accumulating duplicate rows.
-// Combos with no comboName (couldn't be read as one piece) are just
-// inserted fresh each time, since there's no stable key to upsert on.
-export async function upsertMetaCombos(
+// Each refresh recomputes the whole recent window, so the source's rows are
+// swapped wholesale (one atomic batch) rather than upserted — combos that
+// dropped out of the window must disappear too.
+export async function replaceMetaCombos(
   source: string,
   combos: {
     bladeName: string;
     ratchetName: string | null;
-    bitName: string | null;
-    comboName: string | null;
-    winRate: number | null;
-    pickRate: number | null;
-    tier: string | null;
+    bitName: string;
+    comboName: string;
+    placementScore: number;
+    topFinishes: number;
+    lastSeen: string;
   }[],
 ) {
-  if (combos.length === 0) return;
-
-  const rows = combos.map((c) => ({
-    bladeName: c.bladeName,
-    ratchetName: c.ratchetName,
-    bitName: c.bitName,
-    comboName: c.comboName,
-    winRate: c.winRate?.toString() ?? null,
-    pickRate: c.pickRate?.toString() ?? null,
-    tier: c.tier,
-    source,
-  }));
-
-  const withComboName = rows.filter((r) => r.comboName != null);
-  const withoutComboName = rows.filter((r) => r.comboName == null);
-
-  if (withComboName.length > 0) {
-    await db
-      .insert(metaCombos)
-      .values(withComboName)
-      .onConflictDoUpdate({
-        target: [metaCombos.source, metaCombos.comboName],
-        set: {
-          bladeName: sql`excluded.blade_name`,
-          ratchetName: sql`excluded.ratchet_name`,
-          bitName: sql`excluded.bit_name`,
-          winRate: sql`excluded.win_rate`,
-          pickRate: sql`excluded.pick_rate`,
-          tier: sql`excluded.tier`,
-          scrapedAt: sql`now()`,
-        },
-      });
+  const rows = combos.map((c) => ({ ...c, source }));
+  const CHUNK = 500;
+  const inserts = [];
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    inserts.push(db.insert(metaCombos).values(rows.slice(i, i + CHUNK)));
   }
-  if (withoutComboName.length > 0) {
-    await db.insert(metaCombos).values(withoutComboName);
-  }
+  await db.batch([db.delete(metaCombos).where(eq(metaCombos.source, source)), ...inserts]);
 }

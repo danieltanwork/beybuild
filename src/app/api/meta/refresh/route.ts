@@ -1,14 +1,10 @@
 import { NextResponse } from "next/server";
-import { fetchMetaCombos } from "@/lib/meta";
-import { upsertMetaCombos } from "@/db/queries";
+import { fetchMetaCombos, META_SOURCE } from "@/lib/meta";
+import { replaceMetaCombos } from "@/db/queries";
 
-// Called on a schedule (see vercel.json's "crons") to refresh the
-// competitive-meta combo data used for Build-page suggestions. Vercel signs
-// its own cron requests with `Authorization: Bearer $CRON_SECRET`. A
-// `?secret=` query param is accepted too — a header can't be attached just
-// by opening a URL in a browser, which is the easiest way to manually check
-// on the scrape while it's still unverified against the source site's real
-// structure.
+// Called weekly by Vercel Cron (see vercel.json), which sends
+// `Authorization: Bearer $CRON_SECRET`. `?secret=` is also accepted so a
+// refresh can be triggered by just opening the URL in a browser.
 export async function GET(request: Request) {
   const auth = request.headers.get("authorization");
   const secretParam = new URL(request.url).searchParams.get("secret");
@@ -23,12 +19,13 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Fetch failed", detail: result.error }, { status: 502 });
   }
 
-  await upsertMetaCombos(result.source, result.combos);
+  await replaceMetaCombos(META_SOURCE, result.combos);
 
   return NextResponse.json({
-    source: result.source,
-    fetchedLength: result.fetchedLength,
+    source: META_SOURCE,
+    dataAsOf: result.dataAsOf,
+    eventsInWindow: result.eventsInWindow,
     comboCount: result.combos.length,
-    combos: result.combos,
+    top10: result.combos.slice(0, 10).map((c) => `${c.comboName} (${c.topFinishes} top-3s)`),
   });
 }

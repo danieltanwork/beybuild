@@ -25,6 +25,11 @@ record.
   writing anything. One-time backfill semantics, not an ongoing sync.
 - Box-photo analysis handles decimal stats (e.g. a CX-line ratchet's
   Defense 8.5) — rounds to nearest integer at save time.
+- **Meta picks on `/build`** — for the selected blade, the top 3
+  ratchet+bit combos by WBO top-3 finishes (last 90 days of the archive),
+  each with a count, a "Need X" warning for unowned parts, and a Use
+  button. Data is refreshed weekly by Vercel Cron (`/api/meta/refresh`,
+  Mondays 06:00 UTC), or manually via `?secret=$CRON_SECRET`.
 
 **Known limitations, by design or by accepted tradeoff:**
 - No auto-crop from box photos — removed after extensive testing showed it
@@ -40,6 +45,12 @@ record.
   "Operate"/"Orb" → O) — surfaced in the review UI, not silently resolved.
 
 ## Changelog (chronological, most recent first)
+
+- **Meta picks on the Build page** — tried MetaBeys (SPA, empty shell) and
+  the WBO forum directly (403 to Vercel), then switched to a public GitHub
+  archive of WBO results with structured placements. `meta_combos` gained
+  `placement_score`/`top_finishes`/`last_seen`; each refresh replaces the
+  source's rows atomically. See `memory.md` for the reasoning.
 
 - **Decimal stats** — a CX-18 box's ratchet prints Defense 8.5/Stamina 9.5;
   the extraction schema required integers so the *whole* box failed to
@@ -75,23 +86,10 @@ record.
 
 ## In progress / next up
 
-- **Meta-driven Build suggestions** (user request, not yet built): suggest
-  a ratchet+bit pairing on the Build page based on recent competitive
-  tournament results, not just static stats.
-  - Researched: no ready-made public API exists. The canonical primary
-    source is the WBO "Winning Combinations" forum thread
-    (`worldbeyblade.org`); fan aggregators (MetaBeys, BeyX Hub, BBXHub)
-    summarize it into tier lists but don't expose queryable data.
-  - Recommended approach (pending user go-ahead): a small `meta_stats`
-    table + a scheduled job that parses new WBO thread entries into it;
-    Build page looks up the best-performing ratchet+bit for the selected
-    blade, falling back to the overall top combo.
-  - Blocker: this sandbox can't reach any of the candidate sites to
-    inspect them further (network egress policy). User added
-    `metabeys.com` to the environment's allowlist, but that didn't take
-    effect in the already-running session — needs a fresh session to pick
-    up the change, or continue relying on WebSearch summaries instead of
-    direct page fetches.
-  - Still open: which site (if any) matches what the user remembers
-    ("current meta rankings and build[er]") — leading guess is BeyX Hub
-    (has both a tier list and an interactive combo builder), unconfirmed.
+- **Meta picks: verify in production** — first refresh against the GitHub
+  archive needs the user to open the refresh URL (the sandbox can't reach
+  the deployed app). Watch whether the archive keeps updating: WBO may be
+  moving results into "leagues" for Season 3, and the maintainer's commits
+  mention removing events "already on leagues".
+- Unused `win_rate`/`pick_rate`/`tier` columns on `meta_combos` could be
+  dropped (destructive migration, so ask first).

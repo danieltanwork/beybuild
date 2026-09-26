@@ -38,18 +38,13 @@ const STAT_ACCENTS = [
 ] as const;
 
 export type MetaCombo = {
-  bladeName: string;
   ratchetName: string | null;
   bitName: string | null;
-  winRate: string | null;
-  pickRate: string | null;
-  tier: string | null;
-  source: string;
+  topFinishes: number;
 };
 
-// Scraped names won't always match the catalog's spelling/spacing exactly
-// (e.g. "Shark Scale" vs "Sharkscale") — compare on a normalized form
-// instead of an exact string match.
+// Tournament data won't always match the catalog's spelling/case exactly
+// (e.g. "NR" vs "Nr") — compare on a normalized form.
 function normalize(name: string) {
   return name.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
@@ -58,12 +53,14 @@ export function BuildPicker({
   blades,
   ratchets,
   bits,
-  metaCombos = [],
+  metaByBlade = {},
+  metaAsOf = null,
 }: {
   blades: Part[];
   ratchets: Part[];
   bits: Part[];
-  metaCombos?: MetaCombo[];
+  metaByBlade?: Record<string, MetaCombo[]>;
+  metaAsOf?: string | null;
 }) {
   // Start with a real combo on screen (first owned part of each type)
   // instead of an empty state the player has to fill in from scratch.
@@ -82,27 +79,22 @@ export function BuildPicker({
     [bladeId, ratchetId, bitId, blades, ratchets, bits],
   );
 
-  const metaPick = useMemo(() => {
-    if (!selected.blade) return null;
-    const key = normalize(selected.blade.name);
-    return metaCombos.find((c) => normalize(c.bladeName) === key) ?? null;
-  }, [selected.blade, metaCombos]);
-
-  const metaPickParts = useMemo(() => {
-    if (!metaPick) return null;
-    const ratchet = metaPick.ratchetName
-      ? ratchets.find((p) => normalize(p.name) === normalize(metaPick.ratchetName!))
-      : undefined;
-    const bit = metaPick.bitName
-      ? bits.find((p) => normalize(p.name) === normalize(metaPick.bitName!))
-      : undefined;
-    return { ratchet, bit };
-  }, [metaPick, ratchets, bits]);
-
-  function applyMetaPick() {
-    if (metaPickParts?.ratchet) setRatchetId(metaPickParts.ratchet.id);
-    if (metaPickParts?.bit) setBitId(metaPickParts.bit.id);
-  }
+  const metaPicks = useMemo(() => {
+    if (!selected.blade) return [];
+    return (metaByBlade[selected.blade.id] ?? []).map((combo) => {
+      const ratchet = combo.ratchetName
+        ? ratchets.find((p) => normalize(p.name) === normalize(combo.ratchetName!))
+        : undefined;
+      const bit = combo.bitName
+        ? bits.find((p) => normalize(p.name) === normalize(combo.bitName!))
+        : undefined;
+      const missing = [
+        combo.ratchetName && !ratchet ? combo.ratchetName : null,
+        combo.bitName && !bit ? combo.bitName : null,
+      ].filter((m): m is string => m !== null);
+      return { combo, ratchet, bit, missing };
+    });
+  }, [selected.blade, metaByBlade, ratchets, bits]);
 
   // A ratchet-integrated blade's own stats already include the ratchet's
   // contribution, so it has no separate ratchet part and needs one either.
@@ -166,42 +158,45 @@ export function BuildPicker({
         </div>
       )}
 
-      {metaPick && (
-        <div className="neon-card flex items-center justify-between gap-3 rounded-2xl border border-neon-lime/40 p-4">
-          <div>
+      {metaPicks.length > 0 && (
+        <div className="neon-card flex flex-col gap-3 rounded-2xl border border-neon-lime/40 p-4">
+          <div className="flex items-center justify-between gap-2">
             <span className="rounded-full bg-neon-lime px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-background">
-              Meta pick
+              Meta picks
             </span>
-            <p className="mt-1.5 text-sm font-semibold text-foreground">
-              {[metaPick.ratchetName, metaPick.bitName].filter(Boolean).join(" + ") || "—"}
-            </p>
-            <p className="text-[11px] text-muted-foreground">
-              {metaPick.tier && `Tier ${metaPick.tier} · `}
-              {metaPick.winRate != null && `${metaPick.winRate}% win rate `}
-              {metaPick.pickRate != null && `· ${metaPick.pickRate}% pick rate `}
-              <span className="italic">(via {metaPick.source})</span>
-            </p>
-            {(!metaPickParts?.ratchet && metaPick.ratchetName) ||
-            (!metaPickParts?.bit && metaPick.bitName) ? (
-              <p className="mt-1 text-[11px] text-neon-red">
-                You don&rsquo;t own {[
-                  !metaPickParts?.ratchet && metaPick.ratchetName,
-                  !metaPickParts?.bit && metaPick.bitName,
-                ]
-                  .filter(Boolean)
-                  .join(" or ")}{" "}
-                yet.
-              </p>
-            ) : null}
+            <span className="text-[10px] text-muted-foreground">
+              WBO top-3 finishes, 90 days{metaAsOf ? ` to ${metaAsOf}` : ""}
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={applyMetaPick}
-            disabled={!metaPickParts?.ratchet && !metaPickParts?.bit}
-            className="shrink-0 rounded-lg bg-neon-lime px-3 py-2 text-xs font-bold text-background disabled:opacity-40"
-          >
-            Use this
-          </button>
+          {metaPicks.map(({ combo, ratchet, bit, missing }) => (
+            <div
+              key={`${combo.ratchetName}-${combo.bitName}`}
+              className="flex items-center justify-between gap-3"
+            >
+              <div>
+                <p className="text-sm font-semibold text-foreground">
+                  {[combo.ratchetName, combo.bitName].filter(Boolean).join(" + ")}
+                  <span className="ml-2 text-[11px] font-normal text-muted-foreground">
+                    {combo.topFinishes}×
+                  </span>
+                </p>
+                {missing.length > 0 && (
+                  <p className="text-[11px] text-neon-red">Need {missing.join(" + ")}</p>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  if (ratchet) setRatchetId(ratchet.id);
+                  if (bit) setBitId(bit.id);
+                }}
+                disabled={missing.length > 0}
+                className="shrink-0 rounded-lg bg-neon-lime px-3 py-1.5 text-xs font-bold text-background disabled:opacity-40"
+              >
+                Use
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
