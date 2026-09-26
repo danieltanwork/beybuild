@@ -69,15 +69,19 @@ A Beyblade X combo's full name usually encodes three parts: Blade name + Ratchet
 ${pageContent}`;
 }
 
-async function fetchHtml(url: string): Promise<string | null> {
+type FetchResult = { ok: true; html: string } | { ok: false; error: string };
+
+async function fetchHtml(url: string): Promise<FetchResult> {
   try {
     const res = await fetch(url, {
       headers: { "User-Agent": "Mozilla/5.0 (compatible; BeyBuildMetaBot/1.0; +https://beybuild.vercel.app)" },
     });
-    if (!res.ok) return null;
-    return await res.text();
-  } catch {
-    return null;
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status} ${res.statusText} from ${url}` };
+    }
+    return { ok: true, html: await res.text() };
+  } catch (err) {
+    return { ok: false, error: `${err instanceof Error ? err.name + ": " + err.message : String(err)} fetching ${url}` };
   }
 }
 
@@ -91,21 +95,22 @@ function findLatestPage(html: string): number | null {
   return Math.max(...matches);
 }
 
-export async function fetchMetaCombos(): Promise<{
-  combos: ScrapedCombo[];
-  source: string;
-  fetchedLength: number;
-} | null> {
-  const firstPageHtml = await fetchHtml(THREAD_BASE_URL);
-  if (firstPageHtml === null) return null;
-  if (!firstPageHtml.trim()) return { combos: [], source: SOURCE, fetchedLength: 0 };
+export type MetaFetchResult =
+  | { ok: true; combos: ScrapedCombo[]; source: string; fetchedLength: number }
+  | { ok: false; error: string };
 
-  const latestPage = findLatestPage(firstPageHtml);
+export async function fetchMetaCombos(): Promise<MetaFetchResult> {
+  const firstPage = await fetchHtml(THREAD_BASE_URL);
+  if (!firstPage.ok) return { ok: false, error: firstPage.error };
+  if (!firstPage.html.trim()) return { ok: true, combos: [], source: SOURCE, fetchedLength: 0 };
+
+  const latestPage = findLatestPage(firstPage.html);
   const targetUrl = latestPage && latestPage > 1 ? `${THREAD_BASE_URL}?page=${latestPage}` : THREAD_BASE_URL;
 
-  const html = targetUrl === THREAD_BASE_URL ? firstPageHtml : await fetchHtml(targetUrl);
-  if (html === null) return null;
-  if (!html.trim()) return { combos: [], source: SOURCE, fetchedLength: 0 };
+  const pageResult = targetUrl === THREAD_BASE_URL ? firstPage : await fetchHtml(targetUrl);
+  if (!pageResult.ok) return { ok: false, error: pageResult.error };
+  const html = pageResult.html;
+  if (!html.trim()) return { ok: true, combos: [], source: SOURCE, fetchedLength: 0 };
 
   // Truncate rather than send the whole page — plenty for a page's worth of
   // forum posts, and keeps the call cheap. Adjust if real pages turn out to
@@ -122,13 +127,13 @@ export async function fetchMetaCombos(): Promise<{
 
   const toolUse = response.content.find((block) => block.type === "tool_use");
   if (!toolUse || toolUse.type !== "tool_use") {
-    return { combos: [], source: SOURCE, fetchedLength: html.length };
+    return { ok: true, combos: [], source: SOURCE, fetchedLength: html.length };
   }
 
   const parsed = resultSchema.safeParse(toolUse.input);
   if (!parsed.success) {
-    return { combos: [], source: SOURCE, fetchedLength: html.length };
+    return { ok: true, combos: [], source: SOURCE, fetchedLength: html.length };
   }
 
-  return { combos: parsed.data.combos, source: SOURCE, fetchedLength: html.length };
+  return { ok: true, combos: parsed.data.combos, source: SOURCE, fetchedLength: html.length };
 }

@@ -19,8 +19,8 @@ export async function GET(request: Request) {
   }
 
   const result = await fetchMetaCombos();
-  if (!result) {
-    return NextResponse.json({ error: "Fetch failed" }, { status: 502 });
+  if (!result.ok) {
+    return NextResponse.json({ error: "Fetch failed", detail: result.error }, { status: 502 });
   }
 
   await upsertMetaCombos(result.source, result.combos);
