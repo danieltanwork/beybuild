@@ -46,7 +46,10 @@ function toStats(raw: Record<string, string> | undefined): PartStats {
     const value = raw[key];
     if (typeof value === "string" && value.trim() !== "") {
       const n = Number(value);
-      if (Number.isFinite(n)) stats[key] = n;
+      // The parts table stores these as whole numbers — some parts print a
+      // decimal stat (e.g. a ratchet's Defense as 8.5), so round rather than
+      // let a fractional value hit the integer column.
+      if (Number.isFinite(n)) stats[key] = Math.round(n);
     }
   }
   return stats;

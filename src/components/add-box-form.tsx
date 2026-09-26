@@ -63,7 +63,11 @@ function statsFromAnalysisBey(bey: Record<string, unknown>, prefix: string, fiel
   const stats: Stats = {};
   for (const f of fields) {
     const raw = bey[`${prefix}${f.key[0].toUpperCase()}${f.key.slice(1)}`];
-    stats[f.key] = typeof raw === "number" ? String(raw) : "";
+    // Some parts print a decimal stat (e.g. a ratchet's Defense as 8.5), but
+    // the parts table only stores whole numbers — round here so what's
+    // shown in the field already matches what saving will store, rather
+    // than silently changing on submit.
+    stats[f.key] = typeof raw === "number" ? String(Math.round(raw)) : "";
   }
   return stats;
 }

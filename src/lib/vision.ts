@@ -11,7 +11,10 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 // which number belonged to which block on a real test box.
 const model = process.env.VISION_MODEL || "claude-sonnet-5";
 
-const nullableInt = z.number().int().nullable();
+// Most printed stats are whole numbers, but some parts (seen on a CX-line
+// ratchet) print a decimal (e.g. Defense 8.5, Stamina 9.5) — requiring an
+// integer here made the whole extraction fail schema validation on that box.
+const nullableStat = z.number().nullable();
 
 // A raw bar-chart block as printed on the box, BEFORE we know which part
 // (blade/ratchet/bit) it belongs to. Asking the model to only transcribe
@@ -23,16 +26,16 @@ const nullableInt = z.number().int().nullable();
 // purely from which stats a block contains — never from its position
 // relative to a label, which varies from box to box and isn't reliable.
 const blockSchema = z.object({
-  attack: nullableInt,
-  defense: nullableInt,
-  stamina: nullableInt,
-  height: nullableInt, // present only on a ratchet's block
-  dash: nullableInt, // present only on a bit's block
-  burstResistance: nullableInt, // present only on a bit's block
+  attack: nullableStat,
+  defense: nullableStat,
+  stamina: nullableStat,
+  height: nullableStat, // present only on a ratchet's block
+  dash: nullableStat, // present only on a bit's block
+  burstResistance: nullableStat, // present only on a bit's block
   // Second (Low Mode) numbers, only on a mode-change blade's own block.
-  attackLow: nullableInt,
-  defenseLow: nullableInt,
-  staminaLow: nullableInt,
+  attackLow: nullableStat,
+  defenseLow: nullableStat,
+  staminaLow: nullableStat,
 });
 
 const rawBeySchema = z.object({
@@ -107,15 +110,15 @@ Read the box and record what you can actually see. Only fill in a field if you c
 const BLOCK_SCHEMA = {
   type: "object",
   properties: {
-    attack: { type: ["integer", "null"], description: "This block's printed Attack stat." },
-    defense: { type: ["integer", "null"], description: "This block's printed Defense stat." },
-    stamina: { type: ["integer", "null"], description: "This block's printed Stamina stat." },
-    height: { type: ["integer", "null"], description: "This block's printed Height stat, only if this block actually shows a Height bar (only a ratchet's block does)." },
-    dash: { type: ["integer", "null"], description: "This block's printed Dash stat, only if this block actually shows a Dash bar (only a bit's block does)." },
-    burstResistance: { type: ["integer", "null"], description: "This block's printed Burst Resistance stat, only if this block actually shows a Burst Resistance bar (only a bit's block does)." },
-    attackLow: { type: ["integer", "null"], description: "Second (Low Mode) Attack number, only if this block shows two numbers per stat." },
-    defenseLow: { type: ["integer", "null"], description: "Second (Low Mode) Defense number, only if this block shows two numbers per stat." },
-    staminaLow: { type: ["integer", "null"], description: "Second (Low Mode) Stamina number, only if this block shows two numbers per stat." },
+    attack: { type: ["number", "null"], description: "This block's printed Attack stat. Usually a whole number, but transcribe a decimal exactly if that's what's printed (e.g. 8.5)." },
+    defense: { type: ["number", "null"], description: "This block's printed Defense stat. Usually a whole number, but transcribe a decimal exactly if that's what's printed (e.g. 8.5)." },
+    stamina: { type: ["number", "null"], description: "This block's printed Stamina stat. Usually a whole number, but transcribe a decimal exactly if that's what's printed (e.g. 8.5)." },
+    height: { type: ["number", "null"], description: "This block's printed Height stat, only if this block actually shows a Height bar (only a ratchet's block does)." },
+    dash: { type: ["number", "null"], description: "This block's printed Dash stat, only if this block actually shows a Dash bar (only a bit's block does)." },
+    burstResistance: { type: ["number", "null"], description: "This block's printed Burst Resistance stat, only if this block actually shows a Burst Resistance bar (only a bit's block does)." },
+    attackLow: { type: ["number", "null"], description: "Second (Low Mode) Attack number, only if this block shows two numbers per stat." },
+    defenseLow: { type: ["number", "null"], description: "Second (Low Mode) Defense number, only if this block shows two numbers per stat." },
+    staminaLow: { type: ["number", "null"], description: "Second (Low Mode) Stamina number, only if this block shows two numbers per stat." },
   },
   required: ["attack", "defense", "stamina", "height", "dash", "burstResistance", "attackLow", "defenseLow", "staminaLow"],
 } as const;
