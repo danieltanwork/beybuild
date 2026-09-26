@@ -436,6 +436,20 @@ async function cropSheetItem(buffer: Buffer, box: SheetBox): Promise<string | nu
     const height = Math.round((y1 - y0) * meta.height);
     if (width < 10 || height < 10) return null;
 
+    // Grid math gets the right cell, but the padding still leaves some
+    // plain white margin (needed as a safety net against the occasional
+    // imprecise row/column boundary) — trim it down to just the actual
+    // content so the icon fills the frame instead of floating in excess
+    // whitespace. This can't remove genuine bleed from a neighboring cell
+    // (trim only strips uniform background, not other cells' content), just
+    // the slack padding leaves behind. Each step is materialized to its own
+    // buffer rather than chained in one pipeline — chaining extract directly
+    // into trim intermittently threw "bad extract area" in testing.
+    const extracted = await sharp(buffer).extract({ left, top, width, height }).toBuffer();
+    const trimmed = await sharp(extracted)
+      .trim({ background: { r: 255, g: 255, b: 255 }, threshold: 15 })
+      .toBuffer();
+
     // The sheet's cells aren't square (a bit's cell in particular crops to a
     // tall, narrow rectangle), but every part photo in the app is displayed
     // in a square tile with object-cover — which would crop a tall rectangle
@@ -443,8 +457,7 @@ async function cropSheetItem(buffer: Buffer, box: SheetBox): Promise<string | nu
     // onto a fixed white square canvas instead of shipping the raw crop, so
     // the whole icon is always visible regardless of its own aspect ratio —
     // matching how the source sheet already presents it, on plain white.
-    const cropped = await sharp(buffer)
-      .extract({ left, top, width, height })
+    const cropped = await sharp(trimmed)
       .resize(640, 640, {
         fit: "contain",
         background: { r: 255, g: 255, b: 255, alpha: 1 },
