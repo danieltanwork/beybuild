@@ -71,10 +71,20 @@ ${pageContent}`;
 
 type FetchResult = { ok: true; html: string } | { ok: false; error: string };
 
+// WBO's forum returned a bare 403 to a plain fetch() with a self-identifying
+// bot User-Agent — likely tripping bot-detection on the forum's front end
+// (Cloudflare or similar) rather than anything account/auth-specific, since
+// this is a public thread with no login wall. A standard browser-shaped
+// header set is tried here before giving up on this source entirely.
 async function fetchHtml(url: string): Promise<FetchResult> {
   try {
     const res = await fetch(url, {
-      headers: { "User-Agent": "Mozilla/5.0 (compatible; BeyBuildMetaBot/1.0; +https://beybuild.vercel.app)" },
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+      },
     });
     if (!res.ok) {
       return { ok: false, error: `HTTP ${res.status} ${res.statusText} from ${url}` };
