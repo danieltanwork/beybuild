@@ -10,6 +10,7 @@ type SheetItem = {
   code: string;
   croppedPhotoUrl: string;
   matched: boolean;
+  hasPhoto: boolean;
   selected: boolean;
 };
 
@@ -41,10 +42,15 @@ export function PartsLibraryForm() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't read the sheet");
 
+      // This is a one-time catalog backfill, not an ongoing sync — a part
+      // that already has a photo (e.g. this same sheet was imported before)
+      // defaults to unchecked, so re-running an import never silently
+      // overwrites a photo already saved. Still selectable if you want to
+      // replace it with a better crop.
       const detected: SheetItem[] = (data.items ?? []).map(
-        (item: { code: string; croppedPhotoUrl: string; matched: boolean }) => ({
+        (item: { code: string; croppedPhotoUrl: string; matched: boolean; hasPhoto: boolean }) => ({
           ...item,
-          selected: item.matched,
+          selected: item.matched && !item.hasPhoto,
         }),
       );
       setItems(detected);
@@ -120,7 +126,8 @@ export function PartsLibraryForm() {
             Found {items.length} {partTypeLabel[partType].toLowerCase()} icon
             {items.length === 1 ? "" : "s"}. Review each crop before saving — uncheck
             anything that doesn&rsquo;t look right. Codes not already in your parts
-            catalog are shown but can&rsquo;t be saved.
+            catalog are shown but can&rsquo;t be saved, and parts that already have a
+            photo start unchecked so this stays a one-time backfill, not a resync.
           </p>
           <div className="grid grid-cols-3 gap-2">
             {items.map((item) => (
@@ -140,12 +147,19 @@ export function PartsLibraryForm() {
                 />
                 <span className="text-xs font-semibold text-foreground">{item.code}</span>
                 {item.matched ? (
-                  <input
-                    type="checkbox"
-                    checked={item.selected}
-                    onChange={() => toggleItem(item.code)}
-                    className="h-4 w-4 accent-neon-cyan"
-                  />
+                  <>
+                    <input
+                      type="checkbox"
+                      checked={item.selected}
+                      onChange={() => toggleItem(item.code)}
+                      className="h-4 w-4 accent-neon-cyan"
+                    />
+                    {item.hasPhoto && (
+                      <span className="text-center text-[10px] text-muted-foreground">
+                        Already has a photo
+                      </span>
+                    )}
+                  </>
                 ) : (
                   <span className="text-center text-[10px] text-muted-foreground">
                     Not in catalog

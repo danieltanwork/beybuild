@@ -28,15 +28,20 @@ export async function POST(request: Request) {
     const codes = icons.map((i) => i.code);
     const existing = codes.length
       ? await db
-          .select({ name: parts.name })
+          .select({ name: parts.name, imageUrl: parts.imageUrl })
           .from(parts)
           .where(and(eq(parts.type, partType), inArray(parts.name, codes)))
       : [];
-    const knownCodes = new Set(existing.map((p) => p.name));
+    // Map of code -> whether that part already has a photo, so a re-run of
+    // this import (e.g. the same sheet uploaded again later) defaults to
+    // skipping parts it already filled in, rather than silently overwriting
+    // them — this is meant as a one-time catalog backfill, not an ongoing sync.
+    const knownCodes = new Map(existing.map((p) => [p.name, !!p.imageUrl]));
 
     const items = icons.map((icon) => ({
       ...icon,
       matched: knownCodes.has(icon.code),
+      hasPhoto: knownCodes.get(icon.code) ?? false,
     }));
 
     return NextResponse.json({ items });
