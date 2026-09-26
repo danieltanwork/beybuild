@@ -329,31 +329,45 @@ const sheetItemSchema = z.object({
 
 const sheetResultSchema = z.object({ items: z.array(sheetItemSchema) });
 
-const REPORT_SHEET_TOOL: Anthropic.Tool = {
-  name: "report_grid_items",
-  description:
-    "Report every part icon in this reference sheet, each with its printed code label and a tight bounding box around just the icon picture (not its text label).",
-  input_schema: {
-    type: "object",
-    properties: {
-      items: {
-        type: "array",
+// Ratchet codes are "number-number" (e.g. "4-60"); bit codes are 1-3 bare
+// letters (e.g. "GF", "Z", "UF") with no digits at all; blade names are full
+// words (e.g. "Phoenix Wing"). Giving the model a ratchet-shaped example
+// when the sheet is actually bits biased it toward expecting a digit
+// pattern and it under-reported bits — so the example (in both the tool
+// schema and the prompt) must match the part type actually being read.
+const PART_CODE_EXAMPLE: Record<"blade" | "ratchet" | "bit", string> = {
+  blade: '"Phoenix Wing", "Hellsbrave"',
+  ratchet: '"4-60", "7-55", "9-70"',
+  bit: '"GF", "LF", "Z" (short, letters only, no numbers)',
+};
+
+function buildReportSheetTool(partType: "blade" | "ratchet" | "bit"): Anthropic.Tool {
+  return {
+    name: "report_grid_items",
+    description:
+      "Report every part icon in this reference sheet, each with its printed code label and a tight bounding box around just the icon picture (not its text label).",
+    input_schema: {
+      type: "object",
+      properties: {
         items: {
-          type: "object",
-          properties: {
-            code: { type: "string", description: 'The printed code directly under this icon, e.g. "4-60".' },
-            x: { type: "number", description: "Left edge of the icon picture only (not its label), as a fraction of image width." },
-            y: { type: "number", description: "Top edge of the icon picture only, as a fraction of image height." },
-            width: { type: "number", description: "Width of the icon picture only, as a fraction of image width." },
-            height: { type: "number", description: "Height of the icon picture only, as a fraction of image height." },
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              code: { type: "string", description: `The printed code directly under this icon, e.g. ${PART_CODE_EXAMPLE[partType]}.` },
+              x: { type: "number", description: "Left edge of the icon picture only (not its label), as a fraction of image width." },
+              y: { type: "number", description: "Top edge of the icon picture only, as a fraction of image height." },
+              width: { type: "number", description: "Width of the icon picture only, as a fraction of image width." },
+              height: { type: "number", description: "Height of the icon picture only, as a fraction of image height." },
+            },
+            required: ["code", "x", "y", "width", "height"],
           },
-          required: ["code", "x", "y", "width", "height"],
         },
       },
+      required: ["items"],
     },
-    required: ["items"],
-  },
-};
+  };
+}
 
 export type SheetIcon = { code: string; croppedPhotoUrl: string };
 
@@ -402,7 +416,7 @@ export async function extractPartSheetIcons(
   const response = await anthropic.messages.create({
     model,
     max_tokens: 4000,
-    tools: [REPORT_SHEET_TOOL],
+    tools: [buildReportSheetTool(partType)],
     tool_choice: { type: "any" },
     messages: [
       {
@@ -410,7 +424,7 @@ export async function extractPartSheetIcons(
         content: [
           {
             type: "text",
-            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a grid on a plain white background. Each icon has its printed code (e.g. "4-60", "7-55", "M-85") directly below it. Report every icon in the grid: its code, and a tight bounding box around just the icon picture itself (excluding the text label below it).`,
+            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a grid on a plain white background. Each icon has its printed code (e.g. ${PART_CODE_EXAMPLE[partType]}) directly below it. Report every icon in the grid: its code, and a tight bounding box around just the icon picture itself (excluding the text label below it).`,
           },
           { type: "image", source: { type: "url", url: sheetUrl } },
         ],
