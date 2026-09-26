@@ -314,10 +314,19 @@ export async function analyzeBoxPhotos(
 // problem than finding an icon on a busy box photo: every item is isolated,
 // high-contrast, and explicitly labeled with the exact text we need to
 // match against the parts catalog. Verified in testing: 4/4 and 19/19 codes
-// read correctly across two real sheets, with an occasional cropped box
-// landing on the label instead of the icon near an image's bottom edge —
-// callers should treat the result as something to review, not an
-// unattended write to the shared parts catalog.
+// read correctly across two real sheets.
+//
+// Asking the model for a box around just the icon (excluding its label) was
+// unreliable in testing — it consistently undershot the icon's top edge,
+// cutting the icon off and grabbing the label below instead. Asking for the
+// whole cell instead (icon + label together, as one unit — an easier, more
+// natural target since it's bounded by whitespace on all sides) worked far
+// better across three real sheets of both bits and ratchets, at the cost of
+// occasionally including a sliver of a neighboring cell — a much better
+// failure mode than cutting off the actual part. A generous crop padding
+// (see cropSheetItem) absorbs the remaining imprecision; callers should
+// still treat the result as something to review, not an unattended write
+// to the shared parts catalog.
 //
 // Bit reference sheets are a special case: they print each bit's full
 // descriptive name ("Gear Flat", "Turbo", "Rubber Accel"), but a box's own
@@ -364,7 +373,7 @@ function buildReportSheetTool(partType: "blade" | "ratchet" | "bit"): Anthropic.
   return {
     name: "report_grid_items",
     description:
-      "Report every part icon in this reference sheet, each with its printed code label and a tight bounding box around just the icon picture (not its text label).",
+      "Report every grid cell in this reference sheet: its printed code label and a tight bounding box around the whole cell (icon picture plus its code label together, as one unit).",
     input_schema: {
       type: "object",
       properties: {
@@ -373,11 +382,11 @@ function buildReportSheetTool(partType: "blade" | "ratchet" | "bit"): Anthropic.
           items: {
             type: "object",
             properties: {
-              code: { type: "string", description: `The printed code directly under this icon, e.g. ${PART_CODE_EXAMPLE[partType]}.` },
-              x: { type: "number", description: "Left edge of the icon picture only (not its label), as a fraction of image width." },
-              y: { type: "number", description: "Top edge of the icon picture only, as a fraction of image height." },
-              width: { type: "number", description: "Width of the icon picture only, as a fraction of image width." },
-              height: { type: "number", description: "Height of the icon picture only, as a fraction of image height." },
+              code: { type: "string", description: `The printed code in this cell, e.g. ${PART_CODE_EXAMPLE[partType]}.` },
+              x: { type: "number", description: "Left edge of the whole cell (icon + label together), as a fraction of image width." },
+              y: { type: "number", description: "Top edge of the whole cell — starting at the icon's top, not the label — as a fraction of image height." },
+              width: { type: "number", description: "Width of the whole cell, as a fraction of image width." },
+              height: { type: "number", description: "Height of the whole cell, from the top of the icon picture down through the bottom of its printed code label, as a fraction of image height." },
             },
             required: ["code", "x", "y", "width", "height"],
           },
@@ -401,7 +410,11 @@ async function cropSheetItem(
     if (!meta.width || !meta.height) return null;
 
     const clamp = (v: number) => Math.min(1, Math.max(0, v));
-    const pad = 0.06;
+    // A generous margin — the model's own box is already the whole cell
+    // (icon + label), so this just absorbs its remaining imprecision. Worst
+    // case is a sliver of a neighboring cell creeping in, which is a far
+    // better failure mode than cutting off the actual part.
+    const pad = 0.2;
     const x0 = clamp(box.x - box.width * pad);
     const y0 = clamp(box.y - box.height * pad);
     const x1 = clamp(box.x + box.width * (1 + pad));
@@ -443,7 +456,7 @@ export async function extractPartSheetIcons(
         content: [
           {
             type: "text",
-            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a grid on a plain white background. Each icon has its printed code (e.g. ${PART_CODE_EXAMPLE[partType]}) directly below it. Report every icon in the grid: its code, and a tight bounding box around just the icon picture itself (excluding the text label below it).`,
+            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a grid on a plain white background. Each grid cell contains one icon picture with its printed code (e.g. ${PART_CODE_EXAMPLE[partType]}) directly below it. Report every cell: its code, and a tight bounding box around the WHOLE cell — starting at the top of the icon picture and extending down to include its code label below, with no other cell's content inside.`,
           },
           { type: "image", source: { type: "url", url: sheetUrl } },
         ],
