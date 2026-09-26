@@ -77,12 +77,20 @@ export default async function InventoryPage() {
     <main className="flex flex-1 flex-col gap-4 px-5 pt-8">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-foreground">Inventory</h1>
-        <Link
-          href="/inventory/add"
-          className="glow-cyan rounded-full bg-gradient-to-r from-neon-cyan to-neon-violet px-4 py-2 text-sm font-bold text-background"
-        >
-          + Add box
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/inventory/parts-library"
+            className="rounded-full border border-neon-fuchsia/40 px-3 py-2 text-xs font-medium text-neon-fuchsia"
+          >
+            Import photos
+          </Link>
+          <Link
+            href="/inventory/add"
+            className="glow-cyan rounded-full bg-gradient-to-r from-neon-cyan to-neon-violet px-4 py-2 text-sm font-bold text-background"
+          >
+            + Add box
+          </Link>
+        </div>
       </div>
 
       {boxes.size === 0 && (

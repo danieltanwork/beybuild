@@ -211,3 +211,26 @@ export async function deleteInventoryItem(formData: FormData) {
 
   revalidatePath("/inventory");
 }
+
+// Writes reviewed reference-sheet crops into the shared parts catalog, so
+// they show up for every inventory item using that part (past and future),
+// not just the ones already logged. Only ever called for a specific part
+// that already exists in the catalog (see the review step in the part
+// library page) — this never creates a new part.
+export async function savePartSheetPhotos(
+  partType: "blade" | "ratchet" | "bit",
+  items: { code: string; croppedPhotoUrl: string }[],
+) {
+  await stackServerApp.getUser({ or: "redirect" });
+
+  await Promise.all(
+    items.map(({ code, croppedPhotoUrl }) =>
+      db
+        .update(parts)
+        .set({ imageUrl: croppedPhotoUrl })
+        .where(and(eq(parts.type, partType), eq(parts.name, code))),
+    ),
+  );
+
+  revalidatePath("/inventory");
+}

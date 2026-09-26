@@ -1,6 +1,8 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
+import sharp from "sharp";
 import { z } from "zod";
+import { uploadBuffer } from "@/lib/storage";
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -303,4 +305,131 @@ export async function analyzeBoxPhotos(
   }));
 
   return { boxCode: data.boxCode, boxName: data.boxName, beys };
+}
+
+// --- Reference-sheet part icon extraction -------------------------------
+//
+// A part reference sheet (a grid of icons on a plain white background,
+// each with its printed code directly below it) is a much easier grounding
+// problem than finding an icon on a busy box photo: every item is isolated,
+// high-contrast, and explicitly labeled with the exact text we need to
+// match against the parts catalog. Verified in testing: 4/4 and 19/19 codes
+// read correctly across two real sheets, with an occasional cropped box
+// landing on the label instead of the icon near an image's bottom edge —
+// callers should treat the result as something to review, not an
+// unattended write to the shared parts catalog.
+
+const sheetItemSchema = z.object({
+  code: z.string(),
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+});
+
+const sheetResultSchema = z.object({ items: z.array(sheetItemSchema) });
+
+const REPORT_SHEET_TOOL: Anthropic.Tool = {
+  name: "report_grid_items",
+  description:
+    "Report every part icon in this reference sheet, each with its printed code label and a tight bounding box around just the icon picture (not its text label).",
+  input_schema: {
+    type: "object",
+    properties: {
+      items: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            code: { type: "string", description: 'The printed code directly under this icon, e.g. "4-60".' },
+            x: { type: "number", description: "Left edge of the icon picture only (not its label), as a fraction of image width." },
+            y: { type: "number", description: "Top edge of the icon picture only, as a fraction of image height." },
+            width: { type: "number", description: "Width of the icon picture only, as a fraction of image width." },
+            height: { type: "number", description: "Height of the icon picture only, as a fraction of image height." },
+          },
+          required: ["code", "x", "y", "width", "height"],
+        },
+      },
+    },
+    required: ["items"],
+  },
+};
+
+export type SheetIcon = { code: string; croppedPhotoUrl: string };
+
+// Crops one grid-cell icon out of a sheet's photo buffer and uploads it.
+// Never throws — a bad box just means that one item is skipped.
+async function cropSheetItem(
+  buffer: Buffer,
+  box: { x: number; y: number; width: number; height: number },
+): Promise<string | null> {
+  try {
+    const meta = await sharp(buffer).metadata();
+    if (!meta.width || !meta.height) return null;
+
+    const clamp = (v: number) => Math.min(1, Math.max(0, v));
+    const pad = 0.06;
+    const x0 = clamp(box.x - box.width * pad);
+    const y0 = clamp(box.y - box.height * pad);
+    const x1 = clamp(box.x + box.width * (1 + pad));
+    const y1 = clamp(box.y + box.height * (1 + pad));
+
+    const left = Math.round(x0 * meta.width);
+    const top = Math.round(y0 * meta.height);
+    const width = Math.round((x1 - x0) * meta.width);
+    const height = Math.round((y1 - y0) * meta.height);
+    if (width < 10 || height < 10) return null;
+
+    const cropped = await sharp(buffer)
+      .extract({ left, top, width, height })
+      .jpeg({ quality: 90 })
+      .toBuffer();
+
+    return await uploadBuffer(cropped, "image/jpeg");
+  } catch {
+    return null;
+  }
+}
+
+export async function extractPartSheetIcons(
+  sheetUrl: string,
+  partType: "blade" | "ratchet" | "bit",
+): Promise<SheetIcon[]> {
+  const res = await fetch(sheetUrl);
+  if (!res.ok) throw new Error("Couldn't fetch the reference sheet photo");
+  const buffer = Buffer.from(await res.arrayBuffer());
+
+  const response = await anthropic.messages.create({
+    model,
+    max_tokens: 4000,
+    tools: [REPORT_SHEET_TOOL],
+    tool_choice: { type: "any" },
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `This image is a reference sheet of Beyblade X ${partType} parts, laid out in a grid on a plain white background. Each icon has its printed code (e.g. "4-60", "7-55", "M-85") directly below it. Report every icon in the grid: its code, and a tight bounding box around just the icon picture itself (excluding the text label below it).`,
+          },
+          { type: "image", source: { type: "url", url: sheetUrl } },
+        ],
+      },
+    ],
+  });
+
+  const toolUse = response.content.find((block) => block.type === "tool_use");
+  if (!toolUse || toolUse.type !== "tool_use") return [];
+
+  const parsed = sheetResultSchema.safeParse(toolUse.input);
+  if (!parsed.success) return [];
+
+  const results = await Promise.all(
+    parsed.data.items.map(async (item) => {
+      const croppedPhotoUrl = await cropSheetItem(buffer, item);
+      return croppedPhotoUrl ? { code: item.code, croppedPhotoUrl } : null;
+    }),
+  );
+
+  return results.filter((r): r is SheetIcon => r !== null);
 }
