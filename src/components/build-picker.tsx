@@ -140,33 +140,35 @@ export function BuildPicker({
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="glow-fuchsia neon-card flex items-center justify-center gap-3 rounded-2xl p-4">
-        <PreviewSlot part={selected.blade} placeholder="Blade" />
-        <span className="text-neon-fuchsia">+</span>
-        {isIntegrated ? (
-          <div className="flex h-16 w-16 items-center justify-center rounded-xl border border-dashed border-border text-center text-[9px] text-muted-foreground">
-            Built into blade
-          </div>
-        ) : (
-          <PreviewSlot part={selected.ratchet} placeholder="Ratchet" />
-        )}
-        <span className="text-neon-fuchsia">+</span>
-        <PreviewSlot part={selected.bit} placeholder="Bit" />
-      </div>
-
-      {ready && (
-        <div className="flex flex-wrap gap-2">
-          {(Object.keys(STAT_LABELS) as (keyof typeof STAT_LABELS)[]).map((key, i) => (
-            <StatPill
-              key={key}
-              label={STAT_LABELS[key]}
-              value={totals[key]}
-              accent={STAT_ACCENTS[i]}
-            />
-          ))}
+    <div className="flex flex-col gap-5">
+      <div className="glow-fuchsia neon-card flex flex-col gap-4 rounded-2xl p-4">
+        <div className="flex items-center justify-center gap-2">
+          <PreviewSlot part={selected.blade} placeholder="Blade" accent="fuchsia" />
+          <span className="text-lg text-muted-foreground">+</span>
+          {isIntegrated ? (
+            <div className="flex h-20 w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-border px-1 text-center text-[9px] text-muted-foreground">
+              Built into blade
+            </div>
+          ) : (
+            <PreviewSlot part={selected.ratchet} placeholder="Ratchet" accent="cyan" />
+          )}
+          <span className="text-lg text-muted-foreground">+</span>
+          <PreviewSlot part={selected.bit} placeholder="Bit" accent="violet" />
         </div>
-      )}
+
+        {ready && (
+          <div className="flex flex-wrap justify-center gap-2 border-t border-border pt-4">
+            {(Object.keys(STAT_LABELS) as (keyof typeof STAT_LABELS)[]).map((key, i) => (
+              <StatPill
+                key={key}
+                label={STAT_LABELS[key]}
+                value={totals[key]}
+                accent={STAT_ACCENTS[i]}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       {metaPicks.length > 0 && (
         <div className="neon-card flex flex-col gap-3 rounded-2xl border border-neon-lime/40 p-4">
@@ -227,21 +229,18 @@ export function BuildPicker({
         </div>
       )}
 
-      <PartCarousel title="Blade" parts={blades} selectedId={bladeId} onSelect={setBladeId} />
-      {isIntegrated ? (
-        <div className="neon-card rounded-2xl p-4">
-          <span className="rounded-full bg-gradient-to-r from-neon-cyan to-neon-violet px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-background">
-            Ratchet
-          </span>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {selected.blade?.name} is a ratchet-integrated blade — no
-            separate ratchet needed.
-          </p>
-        </div>
-      ) : (
-        <PartCarousel title="Ratchet" parts={ratchets} selectedId={ratchetId} onSelect={setRatchetId} />
-      )}
-      <PartCarousel title="Bit" parts={bits} selectedId={bitId} onSelect={setBitId} />
+      <PartTabs
+        blades={blades}
+        ratchets={ratchets}
+        bits={bits}
+        bladeId={bladeId}
+        ratchetId={ratchetId}
+        bitId={bitId}
+        isIntegrated={isIntegrated}
+        onSelectBlade={setBladeId}
+        onSelectRatchet={setRatchetId}
+        onSelectBit={setBitId}
+      />
 
       {ready && (
         <div className="glow-cyan neon-card sticky bottom-16 flex gap-2 rounded-2xl p-3">
@@ -264,15 +263,36 @@ export function BuildPicker({
   );
 }
 
-function PreviewSlot({ part, placeholder }: { part?: Part; placeholder: string }) {
+const ACCENT_BORDER = {
+  fuchsia: "border-neon-fuchsia/50",
+  cyan: "border-neon-cyan/50",
+  violet: "border-neon-violet/50",
+} as const;
+
+function PreviewSlot({
+  part,
+  placeholder,
+  accent,
+}: {
+  part?: Part;
+  placeholder: string;
+  accent: keyof typeof ACCENT_BORDER;
+}) {
   return (
-    <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-xl border border-border bg-background-elevated-2 text-[10px] text-muted-foreground">
-      {part?.imageUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={part.imageUrl} alt={part.name} className="h-full w-full object-cover" />
-      ) : (
-        placeholder
-      )}
+    <div className="flex w-20 shrink-0 flex-col items-center gap-1">
+      <div
+        className={`flex h-20 w-20 items-center justify-center overflow-hidden rounded-xl border bg-background-elevated-2 text-[10px] text-muted-foreground ${ACCENT_BORDER[accent]}`}
+      >
+        {part?.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={part.imageUrl} alt={part.name} className="h-full w-full object-cover" />
+        ) : (
+          placeholder
+        )}
+      </div>
+      <p className="w-full truncate text-center text-[11px] font-medium text-foreground">
+        {part?.name ?? "—"}
+      </p>
     </div>
   );
 }
@@ -296,27 +316,156 @@ function StatPill({
   );
 }
 
-function PartCarousel({
-  title,
+type TabKey = "blade" | "ratchet" | "bit";
+
+const TAB_ACCENT: Record<
+  TabKey,
+  { label: string; activePill: string; text: string; border: string }
+> = {
+  blade: {
+    label: "Blade",
+    activePill: "bg-neon-fuchsia text-background",
+    text: "text-neon-fuchsia",
+    border: "border-neon-fuchsia/40",
+  },
+  ratchet: {
+    label: "Ratchet",
+    activePill: "bg-neon-cyan text-background",
+    text: "text-neon-cyan",
+    border: "border-neon-cyan/40",
+  },
+  bit: {
+    label: "Bit",
+    activePill: "bg-neon-violet text-background",
+    text: "text-neon-violet",
+    border: "border-neon-violet/40",
+  },
+};
+
+function PartTabs({
+  blades,
+  ratchets,
+  bits,
+  bladeId,
+  ratchetId,
+  bitId,
+  isIntegrated,
+  onSelectBlade,
+  onSelectRatchet,
+  onSelectBit,
+}: {
+  blades: Part[];
+  ratchets: Part[];
+  bits: Part[];
+  bladeId: string | null;
+  ratchetId: string | null;
+  bitId: string | null;
+  isIntegrated: boolean;
+  onSelectBlade: (id: string) => void;
+  onSelectRatchet: (id: string) => void;
+  onSelectBit: (id: string) => void;
+}) {
+  const [tab, setTab] = useState<TabKey>("blade");
+  const [expanded, setExpanded] = useState(false);
+
+  function switchTab(next: TabKey) {
+    setTab(next);
+    setExpanded(false);
+  }
+
+  const config: Record<TabKey, { parts: Part[]; selectedId: string | null; onSelect: (id: string) => void; subtitle: string }> = {
+    blade: {
+      parts: blades,
+      selectedId: bladeId,
+      onSelect: onSelectBlade,
+      subtitle: blades.find((p) => p.id === bladeId)?.name ?? "None yet",
+    },
+    ratchet: {
+      parts: ratchets,
+      selectedId: ratchetId,
+      onSelect: onSelectRatchet,
+      subtitle: isIntegrated ? "Built-in" : ratchets.find((p) => p.id === ratchetId)?.name ?? "None yet",
+    },
+    bit: {
+      parts: bits,
+      selectedId: bitId,
+      onSelect: onSelectBit,
+      subtitle: bits.find((p) => p.id === bitId)?.name ?? "None yet",
+    },
+  };
+
+  const active = config[tab];
+
+  return (
+    <div className="neon-card rounded-2xl p-4">
+      <div className="grid grid-cols-3 gap-2">
+        {(Object.keys(TAB_ACCENT) as TabKey[]).map((key) => {
+          const isActive = tab === key;
+          const accent = TAB_ACCENT[key];
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => switchTab(key)}
+              className={`flex flex-col items-center gap-0.5 rounded-xl border px-2 py-2 transition ${
+                isActive ? `${accent.activePill} border-transparent` : `bg-background-elevated-2 ${accent.border} ${accent.text}`
+              }`}
+            >
+              <span className="text-[11px] font-bold uppercase tracking-wide">{accent.label}</span>
+              <span
+                className={`w-full truncate text-center text-[10px] font-medium ${
+                  isActive ? "text-background/80" : "text-muted-foreground"
+                }`}
+              >
+                {config[key].subtitle}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4">
+        {tab === "ratchet" && isIntegrated ? (
+          <p className="py-6 text-center text-xs text-muted-foreground">
+            This blade has its ratchet built in — no separate part needed.
+          </p>
+        ) : (
+          <PartPickerBody
+            tabKey={tab}
+            parts={active.parts}
+            selectedId={active.selectedId}
+            onSelect={active.onSelect}
+            expanded={expanded}
+            onToggleExpanded={() => setExpanded((e) => !e)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PartPickerBody({
+  tabKey,
   parts,
   selectedId,
   onSelect,
+  expanded,
+  onToggleExpanded,
 }: {
-  title: string;
+  tabKey: TabKey;
   parts: Part[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  expanded: boolean;
+  onToggleExpanded: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const accent = TAB_ACCENT[tabKey];
 
   if (parts.length === 0) {
     return (
-      <div>
-        <h2 className="mb-2 text-sm font-semibold text-neon-fuchsia">{title}</h2>
-        <p className="text-xs text-muted-foreground">
-          No {title.toLowerCase()}s in your inventory yet.
-        </p>
-      </div>
+      <p className="py-6 text-center text-xs text-muted-foreground">
+        No {accent.label.toLowerCase()}s in your inventory yet.
+      </p>
     );
   }
 
@@ -328,98 +477,24 @@ function PartCarousel({
     onSelect(parts[next].id);
   }
 
-  return (
-    <div className="neon-card rounded-2xl p-4">
-      <div className="mb-3 flex items-center justify-between">
-        <span className="rounded-full bg-gradient-to-r from-neon-cyan to-neon-violet px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-background">
-          {title}
-        </span>
-        {parts.length > 1 && (
-          <button
-            type="button"
-            onClick={() => setExpanded((e) => !e)}
-            className="text-xs font-medium text-neon-cyan underline"
-          >
-            {expanded ? "Hide list" : `Browse all (${parts.length})`}
-          </button>
-        )}
-      </div>
-
-      {!expanded ? (
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => step(-1)}
-            disabled={parts.length < 2}
-            aria-label={`Previous ${title.toLowerCase()}`}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-neon-cyan/40 text-lg text-neon-cyan disabled:opacity-30"
-          >
-            ‹
-          </button>
-
-          <div className="flex flex-1 flex-col items-center gap-2">
-            <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-2xl border border-border bg-background-elevated-2">
-              {current?.imageUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={current.imageUrl}
-                  alt={current.name}
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="text-xs text-muted-foreground">No photo</span>
-              )}
-            </div>
-            <p className="text-center text-sm font-semibold text-foreground">
-              {current?.name}
-            </p>
-            {current?.attackLow != null && (
-              <p className="text-center text-[10px] text-neon-cyan">
-                Low Mode: {current.attackLow}/{current.defenseLow}/{current.staminaLow}
-              </p>
-            )}
-            {parts.length > 1 && (
-              <p className="text-[11px] text-muted-foreground">
-                {index + 1} / {parts.length}
-              </p>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => step(1)}
-            disabled={parts.length < 2}
-            aria-label={`Next ${title.toLowerCase()}`}
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-neon-cyan/40 text-lg text-neon-cyan disabled:opacity-30"
-          >
-            ›
-          </button>
-        </div>
-      ) : (
+  if (expanded) {
+    return (
+      <div className="flex flex-col gap-3">
         <div className="grid grid-cols-3 gap-2">
           {parts.map((p) => {
             const isSelected = selectedId === p.id;
             return (
               <button
                 key={p.id}
-                onClick={() => {
-                  onSelect(p.id);
-                  setExpanded(false);
-                }}
+                onClick={() => onSelect(p.id)}
                 className={`overflow-hidden rounded-xl ring-2 transition ${
-                  isSelected
-                    ? "glow-lime ring-neon-lime"
-                    : "ring-transparent hover:ring-border"
+                  isSelected ? "glow-lime ring-neon-lime" : "ring-transparent hover:ring-border"
                 }`}
               >
                 <div className="relative flex aspect-square items-center justify-center bg-white">
                   {p.imageUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={p.imageUrl}
-                      alt={p.name}
-                      className="h-full w-full object-cover"
-                    />
+                    <img src={p.imageUrl} alt={p.name} className="h-full w-full object-cover" />
                   ) : (
                     <span className="text-[10px] text-muted-foreground">No photo</span>
                   )}
@@ -431,9 +506,7 @@ function PartCarousel({
                 </div>
                 <p
                   className={`truncate px-1.5 py-1.5 text-center text-[11px] font-medium ${
-                    isSelected
-                      ? "bg-neon-lime text-background"
-                      : "bg-background-elevated-2 text-muted-foreground"
+                    isSelected ? "bg-neon-lime text-background" : "bg-background-elevated-2 text-muted-foreground"
                   }`}
                 >
                   {p.name}
@@ -442,6 +515,62 @@ function PartCarousel({
             );
           })}
         </div>
+        <button type="button" onClick={onToggleExpanded} className={`text-xs font-medium underline ${accent.text}`}>
+          Hide list
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => step(-1)}
+          disabled={parts.length < 2}
+          aria-label={`Previous ${accent.label.toLowerCase()}`}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-lg disabled:opacity-30 ${accent.border} ${accent.text}`}
+        >
+          ‹
+        </button>
+
+        <div className="flex flex-1 flex-col items-center gap-2">
+          <div className="flex h-28 w-28 items-center justify-center overflow-hidden rounded-2xl border border-border bg-background-elevated-2">
+            {current?.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={current.imageUrl} alt={current.name} className="h-full w-full object-cover" />
+            ) : (
+              <span className="text-xs text-muted-foreground">No photo</span>
+            )}
+          </div>
+          <p className="text-center text-sm font-semibold text-foreground">{current?.name}</p>
+          {current?.attackLow != null && (
+            <p className="text-center text-[10px] text-neon-cyan">
+              Low Mode: {current.attackLow}/{current.defenseLow}/{current.staminaLow}
+            </p>
+          )}
+          {parts.length > 1 && (
+            <p className="text-[11px] text-muted-foreground">
+              {index + 1} / {parts.length}
+            </p>
+          )}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => step(1)}
+          disabled={parts.length < 2}
+          aria-label={`Next ${accent.label.toLowerCase()}`}
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full border text-lg disabled:opacity-30 ${accent.border} ${accent.text}`}
+        >
+          ›
+        </button>
+      </div>
+      {parts.length > 1 && (
+        <button type="button" onClick={onToggleExpanded} className={`self-center text-xs font-medium underline ${accent.text}`}>
+          Browse all ({parts.length})
+        </button>
       )}
     </div>
   );
