@@ -21,6 +21,11 @@ record.
   Blade/Ratchet/Bit instead of three stacked full-width cards; each part
   type has a fixed accent color (blade=fuchsia, ratchet=cyan, bit=violet)
   used consistently across `/build`, `/inventory`, and the add/edit form.
+  A "Generate" button under an "Anti-meta" card computes, from the
+  player's own inventory, whichever buildable combo's stats deviate most
+  from the current WBO meta's stat profile in the opposite direction
+  (`src/lib/anti-meta.ts`) — a stat-space complement, not a simulated
+  type-matchup counter (see `memory.md`).
 - `/inventory` and `/inventory/add`/`/[boxId]/edit` — per-part Remove
   buttons ask for confirmation first (`ConfirmSubmitButton`, a thin
   client wrapper around the existing server-action `<form>`). The add/edit
@@ -55,6 +60,16 @@ record.
 
 ## Changelog (chronological, most recent first)
 
+- **Anti-meta build generator** — a "Generate" button on the Build page
+  fills in the owned blade+ratchet+bit combo whose stats deviate most
+  from the current WBO meta's stat profile, in the opposite direction
+  (z-scored against every combo buildable from the player's own
+  inventory). User explicitly chose this stat-complement definition over
+  a type-matchup heuristic. Verified against the real DB: the seeded
+  catalog only prices ~92 of 1,363 real meta combos, so the profile
+  builder scans the full ranked list for enough resolvable combos rather
+  than giving up after the first `topN` raw rows. See `memory.md` for the
+  algorithm and the direction-labeling bug it caught during testing.
 - **UI pass: Build, Inventory, add/edit box** — user asked to review these
   pages for visual polish/density/mobile usability. Build's three stacked
   Blade/Ratchet/Bit cards became one tabbed card (each tab shows its

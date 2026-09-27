@@ -1,18 +1,25 @@
 import { stackServerApp } from "@/lib/stack";
-import { getOwnedPartsByType, getBuildsWithParts, getMetaCombosByScore } from "@/db/queries";
+import {
+  getOwnedPartsByType,
+  getBuildsWithParts,
+  getMetaCombosByScore,
+  getAllPartsByType,
+} from "@/db/queries";
 import { metaCombosForBlade } from "@/lib/meta";
+import { computeAntiMetaPick } from "@/lib/anti-meta";
 import { BuildPicker, type MetaCombo } from "@/components/build-picker";
 import { deleteBuild } from "./actions";
 
 export default async function BuildPage() {
   const user = await stackServerApp.getUser({ or: "redirect" });
 
-  const [bladeRows, ratchetRows, bitRows, savedBuilds, metaCombos] = await Promise.all([
+  const [bladeRows, ratchetRows, bitRows, savedBuilds, metaCombos, catalogParts] = await Promise.all([
     getOwnedPartsByType(user.id, ["blade", "blade_ratchet"]),
     getOwnedPartsByType(user.id, "ratchet"),
     getOwnedPartsByType(user.id, "bit"),
     getBuildsWithParts(user.id),
     getMetaCombosByScore(),
+    getAllPartsByType(["blade", "blade_ratchet", "ratchet", "bit"]),
   ]);
 
   const blades = bladeRows.map((r) => r.part);
@@ -32,6 +39,14 @@ export default async function BuildPage() {
     null,
   );
 
+  const antiMetaPick = computeAntiMetaPick({
+    ownedBlades: blades,
+    ownedRatchets: ratchets,
+    ownedBits: bits,
+    catalogParts,
+    metaCombos,
+  });
+
   return (
     <main className="flex flex-1 flex-col gap-6 px-5 pt-8">
       <h1 className="text-2xl font-bold text-foreground">Build</h1>
@@ -48,6 +63,7 @@ export default async function BuildPage() {
           bits={bits}
           metaByBlade={metaByBlade}
           metaAsOf={metaAsOf}
+          antiMetaPick={antiMetaPick}
         />
       )}
 

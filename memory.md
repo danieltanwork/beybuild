@@ -148,3 +148,48 @@ before touching this code again.
   refused as containment escape. Have the user open such URLs and paste
   the result. GitHub raw files aren't blocked, so the current source can be
   tested locally.
+- **Testing DB-dependent logic locally:** this sandbox's egress proxy
+  blocks `*.neon.tech`, so a script can't open a direct Postgres
+  connection — use `mcp__Neon__run_sql` to pull real rows (or compute
+  aggregates in SQL directly) and feed them into a local script instead.
+  A `"use server"`/`import "server-only"` file can still be tested by
+  copying it and stripping that one import line (same trick used for
+  `lib/meta.ts` earlier) — `server-only`'s package isn't installed as a
+  standalone dependency, so a raw import of the real file fails outside
+  Next's build.
+
+## Anti-meta build generator (`src/lib/anti-meta.ts`)
+
+- **What "anti-meta" means here, by explicit user choice:** a pure
+  stat-space complement, not a simulated type-matchup counter (Beyblade
+  X's real Attack/Defense/Stamina/Balance rock-paper-scissors was offered
+  and declined — seemed too much like encoding gameplay knowledge as fact
+  rather than reading it from data). The algorithm: average the (blade+
+  ratchet+bit) stat vector of the highest-ranked WBO combos the catalog
+  can price into a "meta profile", z-score it against the mean/stddev of
+  every combo buildable from the player's *own* inventory, then pick the
+  owned combo whose z-scores are most negatively correlated with the
+  meta's — i.e. the build that deviates from "normal" in the opposite
+  direction the meta does. No claim is made about which stat beats which
+  in an actual battle.
+- **Catalog coverage matters more than expected.** The seeded parts
+  catalog is a small subset of everything WBO results mention (39 parts vs.
+  1,363 distinct meta combos) — verified via SQL that only ~92 of 1,363
+  meta combos resolve to catalog parts at all. `computeAntiMetaPick` scans
+  the *entire* ranked meta_combos list and keeps going until it collects
+  `topN` resolved combos, rather than resolving only the first `topN` raw
+  rows — the latter returned too few (sometimes zero) profile samples
+  whenever the top-ranked rows happened to use parts outside the catalog
+  (this did happen with the real top-20 rows: only 3 resolved). Tested
+  end-to-end against real data pulled via `mcp__Neon__run_sql` (the one
+  real inventory in the DB, which happens to own the entire catalog) —
+  produced a sane pick (Wyvernhover+8-80+Y countering a Sharkscale-driven
+  attack-heavy meta with high defense/stamina, low attack).
+- **Direction labeling in the explanation text is not optional.** A stat
+  can appear in both "what the meta leans into" and "what this build
+  counters with" — e.g. the meta leans Attack, and the countering build
+  wins by having *less* Attack, not more of something else. An earlier
+  version showed bare stat labels for both lists, which read as
+  self-contradictory ("meta leans Attack ... build leans Attack"). Fixed
+  by prefixing counter entries with "high"/"low" based on the sign of
+  that stat's z-score.

@@ -43,6 +43,14 @@ export type MetaCombo = {
   topFinishes: number;
 };
 
+export type AntiMetaPick = {
+  bladeId: string;
+  ratchetId: string | null;
+  bitId: string;
+  metaLeans: string[];
+  counters: string[];
+};
+
 // Tournament data won't always match the catalog's spelling/case exactly
 // (e.g. "NR" vs "Nr") — compare on a normalized form.
 function normalize(name: string) {
@@ -65,12 +73,14 @@ export function BuildPicker({
   bits,
   metaByBlade = {},
   metaAsOf = null,
+  antiMetaPick = null,
 }: {
   blades: Part[];
   ratchets: Part[];
   bits: Part[];
   metaByBlade?: Record<string, MetaCombo[]>;
   metaAsOf?: string | null;
+  antiMetaPick?: AntiMetaPick | null;
 }) {
   // Start with a real combo on screen (first owned part of each type)
   // instead of an empty state the player has to fill in from scratch.
@@ -139,6 +149,13 @@ export function BuildPicker({
     });
   }
 
+  function applyAntiMetaPick() {
+    if (!antiMetaPick) return;
+    setBladeId(antiMetaPick.bladeId);
+    setRatchetId(antiMetaPick.ratchetId);
+    setBitId(antiMetaPick.bitId);
+  }
+
   return (
     <div className="flex flex-col gap-5">
       <div className="glow-fuchsia neon-card flex flex-col gap-4 rounded-2xl p-4">
@@ -169,6 +186,39 @@ export function BuildPicker({
           </div>
         )}
       </div>
+
+      {antiMetaPick && (
+        <div className="neon-card flex flex-col gap-2 rounded-2xl border border-neon-red/40 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="rounded-full bg-neon-red px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-background">
+                Anti-meta
+              </span>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {antiMetaPick.metaLeans.length > 0 && (
+                  <>
+                    The meta leans <span className="font-semibold text-foreground">{antiMetaPick.metaLeans.join(" + ")}</span>
+                    {antiMetaPick.counters.length > 0 && " — "}
+                  </>
+                )}
+                {antiMetaPick.counters.length > 0 && (
+                  <>
+                    this build from your inventory counters with{" "}
+                    <span className="font-semibold text-foreground">{antiMetaPick.counters.join(", ")}</span>.
+                  </>
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={applyAntiMetaPick}
+              className="shrink-0 rounded-lg bg-neon-red px-3 py-2 text-xs font-bold text-background"
+            >
+              Generate
+            </button>
+          </div>
+        </div>
+      )}
 
       {metaPicks.length > 0 && (
         <div className="neon-card flex flex-col gap-3 rounded-2xl border border-neon-lime/40 p-4">
