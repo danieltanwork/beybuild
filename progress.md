@@ -60,6 +60,13 @@ record.
 
 ## Changelog (chronological, most recent first)
 
+- **Home screen polish** — small stroke icons on the 4 stat tiles; hero
+  card's part-preview slots colored per type (fuchsia/cyan/violet,
+  matching Build/Inventory); the "no saved build" empty state now
+  mentions the meta-pick/anti-meta features when the user has inventory
+  to build with, with a "Go to Build →" link — gated on `inventoryCount
+  > 0` so a brand-new user with nothing to build isn't sent to a dead
+  end (caught this in a screenshot pass before shipping).
 - **Anti-meta build generator** — a "Generate" button on the Build page
   fills in the owned blade+ratchet+bit combo whose stats deviate most
   from the current WBO meta's stat profile, in the opposite direction
