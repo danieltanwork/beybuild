@@ -75,14 +75,14 @@ export default async function Home() {
   ];
 
   return (
-    <main className="flex flex-1 flex-col gap-5 pt-8">
+    <main className="flex flex-1 flex-col justify-center gap-3 pt-4">
       <div className="glow-fuchsia mx-5 overflow-hidden rounded-3xl border border-neon-fuchsia/30 bg-gradient-to-br from-background-elevated-2 via-background-elevated to-background">
-        <div className="flex items-center justify-between px-5 pt-5">
+        <div className="flex items-center justify-between px-4 pt-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-neon-cyan">
+            <p className="text-[10px] font-semibold uppercase tracking-widest text-neon-cyan">
               Welcome back
             </p>
-            <h1 className="text-xl font-bold text-foreground">
+            <h1 className="text-lg font-bold text-foreground">
               {user.displayName ?? "Blader"}
             </h1>
           </div>
@@ -93,7 +93,7 @@ export default async function Home() {
           )}
         </div>
 
-        <div className="flex flex-col items-center gap-3 px-5 py-7">
+        <div className="flex flex-col items-center gap-2 px-4 py-4">
           {latestBuild ? (
             <>
               <div className="flex items-center gap-2">
@@ -113,10 +113,10 @@ export default async function Home() {
             </>
           ) : (
             <>
-              <div className="flex h-20 w-20 items-center justify-center rounded-2xl border border-neon-cyan/30 bg-neon-cyan/5 text-3xl">
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-neon-cyan/30 bg-neon-cyan/5 text-xl">
                 🌀
               </div>
-              <p className="text-center text-sm text-muted-foreground">
+              <p className="text-center text-xs text-muted-foreground">
                 {inventoryCount > 0
                   ? "No builds saved yet — try a meta pick or generate an anti-meta build"
                   : "No builds yet — log a box to get started"}
@@ -124,7 +124,7 @@ export default async function Home() {
               {inventoryCount > 0 && (
                 <Link
                   href="/build"
-                  className="rounded-full bg-neon-cyan/10 px-4 py-1.5 text-xs font-semibold text-neon-cyan"
+                  className="rounded-full bg-neon-cyan/10 px-3 py-1 text-[11px] font-semibold text-neon-cyan"
                 >
                   Go to Build →
                 </Link>
@@ -134,7 +134,7 @@ export default async function Home() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 px-5">
+      <div className="grid grid-cols-2 gap-2 px-5">
         {stats.map((stat, i) => {
           const accent = STAT_ACCENTS[i % STAT_ACCENTS.length];
           const Icon = STAT_ICONS[i % STAT_ICONS.length];
@@ -142,26 +142,28 @@ export default async function Home() {
             <Link
               key={stat.label}
               href={stat.href}
-              className={`neon-card flex flex-col gap-2 rounded-2xl p-4 ${accent.glow}`}
+              className={`neon-card flex items-center gap-2.5 rounded-xl p-3 ${accent.glow}`}
             >
-              <Icon className={`h-5 w-5 ${accent.text} opacity-70`} />
-              <p className={`text-3xl font-bold ${accent.text}`}>{stat.value}</p>
-              <p className="text-sm text-muted-foreground">{stat.label}</p>
+              <Icon className={`h-4 w-4 shrink-0 ${accent.text} opacity-70`} />
+              <span className="flex items-baseline gap-1.5">
+                <span className={`text-xl font-bold ${accent.text}`}>{stat.value}</span>
+                <span className="text-xs text-muted-foreground">{stat.label}</span>
+              </span>
             </Link>
           );
         })}
       </div>
 
-      <div className="flex flex-col gap-3 px-5 pb-4">
+      <div className="flex flex-col gap-2 px-5 pb-2">
         <Link
           href="/inventory/add"
-          className="glow-cyan rounded-2xl bg-gradient-to-r from-neon-cyan to-neon-violet px-5 py-4 text-center text-base font-bold text-background"
+          className="glow-cyan rounded-xl bg-gradient-to-r from-neon-cyan to-neon-violet px-5 py-3 text-center text-sm font-bold text-background"
         >
           + Add a box to your inventory
         </Link>
         <Link
           href="/build"
-          className="neon-card rounded-2xl px-5 py-4 text-center text-base font-semibold text-foreground"
+          className="neon-card rounded-xl px-5 py-3 text-center text-sm font-semibold text-foreground"
         >
           Create a build
         </Link>

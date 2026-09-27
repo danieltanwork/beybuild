@@ -60,6 +60,15 @@ record.
 
 ## Changelog (chronological, most recent first)
 
+- **Home screen: fits one phone screen, no scrolling** — content was
+  ~840px tall (taller than an iPhone SE's 667px viewport). Tightened
+  padding/sizes throughout and switched the stat tiles from a 3-line
+  stacked layout to a single icon+number+label row; true content height
+  is now ~535-565px, vertically centered in the remaining space. Verified
+  against iPhone SE/14, a small Android, and an old 320×568 device via a
+  local Playwright measurement (not just a screenshot) since a
+  screenshot alone can't confirm "no scrolling" the way an explicit
+  height comparison can.
 - **Home screen polish** — small stroke icons on the 4 stat tiles; hero
   card's part-preview slots colored per type (fuchsia/cyan/violet,
   matching Build/Inventory); the "no saved build" empty state now
