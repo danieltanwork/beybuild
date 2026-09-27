@@ -314,6 +314,7 @@ export function AddBoxForm({
           </label>
           <PartField
             label="Blade"
+            accent="fuchsia"
             value={bey.bladeName}
             onChange={(v) => updateBey(i, { bladeName: v })}
             options={bladeOptions}
@@ -326,6 +327,7 @@ export function AddBoxForm({
           {!bey.bladeIsIntegrated && (
             <PartField
               label="Ratchet"
+              accent="cyan"
               value={bey.ratchetName}
               onChange={(v) => updateBey(i, { ratchetName: v })}
               options={ratchetOptions}
@@ -338,6 +340,7 @@ export function AddBoxForm({
           )}
           <PartField
             label="Bit"
+            accent="violet"
             value={bey.bitName}
             onChange={(v) => updateBey(i, { bitName: v })}
             options={bitOptions}
@@ -389,8 +392,15 @@ export function AddBoxForm({
   );
 }
 
+const PART_ACCENT = {
+  fuchsia: { text: "text-neon-fuchsia", border: "border-l-neon-fuchsia" },
+  cyan: { text: "text-neon-cyan", border: "border-l-neon-cyan" },
+  violet: { text: "text-neon-violet", border: "border-l-neon-violet" },
+} as const;
+
 function PartField({
   label,
+  accent,
   value,
   onChange,
   options,
@@ -401,6 +411,7 @@ function PartField({
   onStatChange,
 }: {
   label: string;
+  accent: keyof typeof PART_ACCENT;
   value: string;
   onChange: (v: string) => void;
   options: PartOption[];
@@ -412,45 +423,48 @@ function PartField({
 }) {
   const uid = useId();
   const listId = `${label.toLowerCase()}-options-${uid}`;
+  const { text, border } = PART_ACCENT[accent];
   return (
-    <div className="neon-card flex flex-col gap-3 rounded-2xl p-4">
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-neon-fuchsia">{label} name</span>
-        <input
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          list={listId}
-          placeholder={`e.g. ${label === "Blade" ? "Phoenix Wing" : label === "Ratchet" ? "9-60" : "GF"}`}
-          className="rounded-lg border border-border bg-background-elevated-2 px-3 py-2 text-foreground focus:border-neon-cyan focus:outline-none"
-          required
-        />
-        <datalist id={listId}>
-          {options.map((o) => (
-            <option key={o.id} value={o.name} />
-          ))}
-        </datalist>
-      </label>
-
-      <div className="flex flex-wrap gap-2">
-        {statFields.map((f) => (
-          <label key={f.key} className="flex flex-col gap-0.5 text-xs">
-            <span className="text-muted-foreground">{f.label}</span>
-            <input
-              type="number"
-              inputMode="numeric"
-              value={stats[f.key] ?? ""}
-              onChange={(e) => onStatChange(f.key, e.target.value)}
-              className="w-16 rounded-lg border border-border bg-background-elevated-2 px-2 py-1.5 text-sm text-foreground focus:border-neon-cyan focus:outline-none"
-            />
-          </label>
-        ))}
-      </div>
-
+    <div className={`neon-card flex gap-3 rounded-2xl border-l-4 p-4 ${border}`}>
       <PhotoCapture
         label={`${label} photo`}
+        size="sm"
         onUploaded={onPhotoUploaded}
         initialUrl={initialPhotoUrl}
       />
+      <div className="flex flex-1 flex-col gap-3">
+        <label className="flex flex-col gap-1 text-sm">
+          <span className={`font-medium ${text}`}>{label} name</span>
+          <input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            list={listId}
+            placeholder={`e.g. ${label === "Blade" ? "Phoenix Wing" : label === "Ratchet" ? "9-60" : "GF"}`}
+            className="rounded-lg border border-border bg-background-elevated-2 px-3 py-2 text-foreground focus:border-neon-cyan focus:outline-none"
+            required
+          />
+          <datalist id={listId}>
+            {options.map((o) => (
+              <option key={o.id} value={o.name} />
+            ))}
+          </datalist>
+        </label>
+
+        <div className="flex flex-wrap gap-2">
+          {statFields.map((f) => (
+            <label key={f.key} className="flex flex-col gap-0.5 text-xs">
+              <span className="text-muted-foreground">{f.label}</span>
+              <input
+                type="number"
+                inputMode="numeric"
+                value={stats[f.key] ?? ""}
+                onChange={(e) => onStatChange(f.key, e.target.value)}
+                className="w-14 rounded-lg border border-border bg-background-elevated-2 px-2 py-1.5 text-sm text-foreground focus:border-neon-cyan focus:outline-none"
+              />
+            </label>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

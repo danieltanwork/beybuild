@@ -17,7 +17,16 @@ record.
   Set) boxes, and ratchet-integrated blades (fused blade+ratchet, e.g.
   Hellsnether).
 - `/build` — visual picker: assemble a Blade+Ratchet+Bit combo from parts
-  the user actually owns, save it.
+  the user actually owns, save it. A single tabbed card switches between
+  Blade/Ratchet/Bit instead of three stacked full-width cards; each part
+  type has a fixed accent color (blade=fuchsia, ratchet=cyan, bit=violet)
+  used consistently across `/build`, `/inventory`, and the add/edit form.
+- `/inventory` and `/inventory/add`/`/[boxId]/edit` — per-part Remove
+  buttons ask for confirmation first (`ConfirmSubmitButton`, a thin
+  client wrapper around the existing server-action `<form>`). The add/edit
+  form's per-part fields (name + stats + photo) went from a stacked
+  ~200px photo block to a compact 80px thumbnail beside the inputs,
+  roughly halving the form's scroll height.
 - `/inventory/parts-library` — import part photos in bulk from a reference
   sheet (a grid of icons + codes, like the official Beyblade X category
   sheets). Detects each icon, matches it to the shared parts catalog, shows
@@ -46,6 +55,18 @@ record.
 
 ## Changelog (chronological, most recent first)
 
+- **UI pass: Build, Inventory, add/edit box** — user asked to review these
+  pages for visual polish/density/mobile usability. Build's three stacked
+  Blade/Ratchet/Bit cards became one tabbed card (each tab shows its
+  current pick so switching away doesn't lose context); introduced a
+  fixed accent color per part type and carried it through to the
+  Inventory list's labels and the add/edit form's per-part cards.
+  Add/edit form's photo capture got a compact 80px inline mode (`size`
+  prop on `PhotoCapture`) instead of a stacked ~200px block per part.
+  Inventory's per-part Remove button, previously an instant destructive
+  action with no confirmation, now confirms first. Verified locally
+  (screenshots + a scripted click test for the confirm/cancel paths)
+  since this sandbox can't load the deployed app's auth-gated pages.
 - **Meta picks on the Build page** — tried MetaBeys (SPA, empty shell) and
   the WBO forum directly (403 to Vercel), then switched to a public GitHub
   archive of WBO results with structured placements. `meta_combos` gained

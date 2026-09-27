@@ -1,12 +1,21 @@
 import Link from "next/link";
 import { stackServerApp } from "@/lib/stack";
 import { getInventoryWithParts, type InventoryRow, type PartRow } from "@/db/queries";
+import { ConfirmSubmitButton } from "@/components/confirm-submit-button";
 import { deleteInventoryItem } from "./actions";
 
 const typeLabel: Record<string, string> = {
   blade: "Blade",
   ratchet: "Ratchet",
   bit: "Bit",
+};
+
+// Matches the Blade/Ratchet/Bit accent colors used on the Build page's part
+// tabs, so the same part type reads the same color everywhere in the app.
+const typeAccent: Record<string, string> = {
+  blade: "text-neon-fuchsia",
+  ratchet: "text-neon-cyan",
+  bit: "text-neon-violet",
 };
 
 type ItemRow = { inventory: InventoryRow; part: PartRow };
@@ -143,14 +152,14 @@ export default async function InventoryPage() {
               </Link>
             </div>
             {beyGroups(box.items).map((group, i, all) => (
-              <div key={i} className="mb-3 last:mb-0">
+              <div key={i} className="mb-4 last:mb-0">
                 {all.length > 1 && (
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-neon-cyan">
+                  <span className="mb-1.5 inline-block rounded-full bg-background-elevated-2 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-neon-cyan">
                     Beyblade {i + 1}
-                  </p>
+                  </span>
                 )}
                 <div className="grid grid-cols-3 gap-2">
-                  <ItemCell entry={group.blade} label={typeLabel.blade} />
+                  <ItemCell entry={group.blade} label={typeLabel.blade} typeKey="blade" />
                   {group.blade?.part.type === "blade_ratchet" ? (
                     <div className="flex flex-col items-center gap-1">
                       <div className="flex aspect-square w-full flex-col items-center justify-center rounded-lg border border-dashed border-neon-cyan/40 px-1 text-center text-[9px] text-neon-cyan">
@@ -161,9 +170,9 @@ export default async function InventoryPage() {
                       </p>
                     </div>
                   ) : (
-                    <ItemCell entry={group.ratchet} label={typeLabel.ratchet} />
+                    <ItemCell entry={group.ratchet} label={typeLabel.ratchet} typeKey="ratchet" />
                   )}
-                  <ItemCell entry={group.bit} label={typeLabel.bit} />
+                  <ItemCell entry={group.bit} label={typeLabel.bit} typeKey="bit" />
                 </div>
               </div>
             ))}
@@ -174,14 +183,24 @@ export default async function InventoryPage() {
   );
 }
 
-function ItemCell({ entry, label }: { entry?: ItemRow; label: string }) {
+function ItemCell({
+  entry,
+  label,
+  typeKey,
+}: {
+  entry?: ItemRow;
+  label: string;
+  typeKey: "blade" | "ratchet" | "bit";
+}) {
+  const accent = typeAccent[typeKey];
+
   if (!entry) {
     return (
       <div className="flex flex-col items-center gap-1">
         <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-border text-[10px] text-muted-foreground">
           —
         </div>
-        <p className="text-center text-[10px] uppercase tracking-wide text-muted-foreground">
+        <p className={`text-center text-[10px] uppercase tracking-wide ${accent} opacity-60`}>
           {label}
         </p>
       </div>
@@ -204,16 +223,17 @@ function ItemCell({ entry, label }: { entry?: ItemRow; label: string }) {
         </div>
       )}
       <p className="text-center text-[11px] leading-tight text-muted-foreground">
-        <span className="block text-[10px] uppercase tracking-wide text-neon-fuchsia">
-          {label}
-        </span>
+        <span className={`block text-[10px] uppercase tracking-wide ${accent}`}>{label}</span>
         {part.name}
       </p>
       <form action={deleteInventoryItem}>
         <input type="hidden" name="id" value={item.id} />
-        <button type="submit" className="text-[11px] text-neon-red hover:underline">
+        <ConfirmSubmitButton
+          confirmMessage={`Remove ${part.name} from your inventory?`}
+          className="text-[11px] text-neon-red hover:underline"
+        >
           Remove
-        </button>
+        </ConfirmSubmitButton>
       </form>
     </div>
   );
